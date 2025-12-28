@@ -1,0 +1,40 @@
+# 啟用 API (預設 Port 9997)
+api: yes
+
+# 啟用 WebRTC 伺服器
+webrtc: yes
+# 這是 WebRTC 信令 (Signaling) 的 Port
+# Nginx 的 proxy_pass http://127.0.0.1:8889 就是對應這裡
+webrtcAdditionalHosts: [34.158.44.234, streaming.aimate.am]
+webrtcAddress: :8889
+# webrtcAddress: 34.158.44.234
+
+# 【關鍵修正 1】強制指定你的 GCP 公網 IP
+# 如果不加這個，它會回傳 Docker 的內網 IP 給瀏覽器，導致連線失敗
+# webrtcICEHostNATToPublicIPs: [34.158.44.234]
+
+# 【關鍵修正 2】指定 UDP Port 範圍 (用於影像傳輸)
+# WebRTC 傳輸影像主要靠 UDP，建議固定一個範圍方便 Docker 開 Port
+# webrtcUDPMinPort: 8188
+# webrtcUDPMaxPort: 8199
+
+# 如果你想支援 TCP 傳輸 (備用)，可以保留你原本的設定，但通常 UDP 比較重要
+webrtcLocalTCPAddress: :8189
+
+# STUN 設定 (保留即可)
+webrtcICEServers2:
+  - url: stun:stun.l.google.com:19302
+# ------------------------------------------------
+
+# (可選) 保留您之前的 HLS 優化設定
+# hlsSegmentDuration: 1s
+# hlsSegmentCount: 10
+# hlsAllowOrigin: '*'
+
+paths:
+  all:
+    # # 當有串流開始發布時，呼叫 on_publish
+    # runOnReady: curl http://localhost:8000/trigger
+    
+    # # 當串流結束時，呼叫 on_publish_done
+    # runOnNotReady: curl -X POST -d "path=$MTX_PATH" http://localhost:7980/on_publish_done
