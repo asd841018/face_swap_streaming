@@ -8,6 +8,8 @@ from app.core import logger, settings
 from app.routes.webhooks import router as webhooks_router
 from app.routes.sessions import router as sessions_router
 from app.routes.system import router as system_router
+from app.routes.video import router as video_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -34,6 +36,7 @@ app.add_middleware(
 app.include_router(webhooks_router)
 app.include_router(sessions_router)
 app.include_router(system_router)
+app.include_router(video_router)
 
 if __name__ == "__main__":
     # Run from the root directory: python -m app.main
