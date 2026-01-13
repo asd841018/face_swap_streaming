@@ -4,10 +4,12 @@ Video face swap API endpoints
 import os
 import uuid
 import tempfile
+import asyncio
 import httpx
 import cv2
 import boto3
 from botocore.exceptions import ClientError
+from concurrent.futures import ThreadPoolExecutor
 from fastapi import APIRouter, HTTPException, BackgroundTasks
 from pydantic import BaseModel, HttpUrl
 from typing import Optional
@@ -21,13 +23,17 @@ from app.schemas.video import VideoSwapRequest, VideoSwapResponse
 router = APIRouter(prefix="/api/video", tags=["Video"])
 
 # Output directory for processed videos (local fallback)
-OUTPUT_DIR = "/tmp/face_swap_output"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT_DIR = os.path.join(CURRENT_DIR, "swapped_videos")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Initialize swapper (lazy loading)
 _swapper: Optional[RealTimeSwapper] = None
 _s3_client = None
 _bucket_name = None
+
+# Thread pool executor for parallel video processing (max 3 concurrent jobs)
+_executor = ThreadPoolExecutor(max_workers=5)
 
 
 def get_swapper() -> RealTimeSwapper:
@@ -74,13 +80,12 @@ def upload_to_s3(file_path: str, s3_key: str) -> Optional[str]:
     
     try:
         # Upload file with public-read ACL
+        # fix this fucntion
+        # upload_file(file, bucket, key)
         s3_client.upload_file(
             file_path,
-            bucket_name,
-            s3_key,
-            ExtraArgs={
-                'ContentType': 'video/mp4',
-            }
+            bucket_name, # gsiai-dev-leo
+            s3_key,  # swapped_result/{request.owner_key}/{output_filename}
         )
         
         # Generate the S3 URL
@@ -163,68 +168,127 @@ def process_video_face_swap(
     
     logger.info(f"[VideoSwap] Completed: {frame_count} frames processed, saved to {output_path}")
 
-@router.post("/swap", response_model=VideoSwapResponse)
-async def swap_video_face(request: VideoSwapRequest):
+
+async def process_video_in_background(
+    job_id: str,
+    owner_key: str,
+    source_image_path: str,
+    video_path: str,
+    output_path: str,
+    temp_dir: str
+) -> None:
     """
-    Swap face in a video using the provided source face image.
-    
-    - **owner_key**: Unique identifier for the owner (used in output filename)
-    - **image_url**: URL of the source face image
-    - **video_url**: URL of the video to process
-    
-    Returns the URL of the processed video.
+    Background task to process video face swap.
+    This runs in a separate thread to avoid blocking the API response.
     """
     try:
-        # Generate unique ID for this job
-        job_id = str(uuid.uuid4())[:8]
+        logger.info(f"[VideoSwap:{job_id}] Starting background processing for owner: {owner_key}")
         
-        
-        temp_dir = tempfile.mkdtemp(prefix=f"faceswap_{job_id}_")
-        
-        # Download source image
-        source_image_path = os.path.join(temp_dir, "source_face.jpg")
-        logger.info(f"[VideoSwap] Downloading source image: {request.image_url}")
-        await download_file(request.image_url, source_image_path)
-        
-        # Download video
-        video_path = os.path.join(temp_dir, "input_video.mp4")
-        logger.info(f"[VideoSwap] Downloading video: {request.video_url}")
-        await download_file(request.video_url, video_path)
-        
-        # Output path (associated with owner_key)
-        output_filename = f"{request.owner_key}_{job_id}_swapped.mp4"
-        output_path = os.path.join(OUTPUT_DIR, output_filename)
-        
-        # Process video
-        logger.info(f"[VideoSwap] Starting face swap for owner: {request.owner_key}")
-        process_video_face_swap(source_image_path, video_path, output_path)
+        # Process video in thread pool to avoid blocking
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            _executor,
+            process_video_face_swap,
+            source_image_path,
+            video_path,
+            output_path
+        )
         
         # Upload to S3 if configured
-        s3_key = f"swapped_result/{request.owner_key}/{output_filename}"
+        s3_key = f"swapped_result/{owner_key}/{os.path.basename(output_path)}"
         s3_url = upload_to_s3(output_path, s3_key)
         
         if s3_url:
-            output_url = s3_url
+            logger.info(f"[VideoSwap:{job_id}] Uploaded to S3: {s3_url}")
             # Remove local file after successful S3 upload
             try:
                 os.remove(output_path)
             except Exception as e:
-                logger.warning(f"[VideoSwap] Failed to remove local file: {e}")
+                logger.warning(f"[VideoSwap:{job_id}] Failed to remove local file: {e}")
         else:
-            # Fallback to local path if S3 not configured
-            output_url = f"/static/output/{output_filename}"
+            logger.info(f"[VideoSwap:{job_id}] Saved locally: {output_path}")
         
         # Cleanup temp files
         try:
             os.remove(source_image_path)
             os.remove(video_path)
             os.rmdir(temp_dir)
+            logger.info(f"[VideoSwap:{job_id}] Cleaned up temp files")
         except Exception as e:
-            logger.warning(f"[VideoSwap] Failed to cleanup temp files: {e}")
+            logger.warning(f"[VideoSwap:{job_id}] Failed to cleanup temp files: {e}")
+        
+        logger.info(f"[VideoSwap:{job_id}] Background processing completed successfully")
+        
+    except Exception as e:
+        logger.error(f"[VideoSwap:{job_id}] Background processing failed: {e}")
+        # Cleanup on error
+        try:
+            for path in [source_image_path, video_path, output_path]:
+                if os.path.exists(path):
+                    os.remove(path)
+            if os.path.exists(temp_dir):
+                os.rmdir(temp_dir)
+        except Exception as cleanup_err:
+            logger.error(f"[VideoSwap:{job_id}] Cleanup after error failed: {cleanup_err}")
+
+
+@router.post("/swap", response_model=VideoSwapResponse)
+async def swap_video_face(request: VideoSwapRequest, background_tasks: BackgroundTasks):
+    """
+    Swap face in a video using the provided source face image.
+    Returns immediately with job ID while processing in background.
+    
+    - **owner_key**: Unique identifier for the owner (used in output filename)
+    - **image_url**: URL of the source face image
+    - **video_url**: URL of the video to process
+    
+    Returns immediately with the expected output URL. Video will be processed in background.
+    """
+    try:
+        # Generate unique ID for this job
+        job_id = str(uuid.uuid4())[:8]
+        
+        temp_dir = tempfile.mkdtemp(prefix=f"faceswap_{job_id}_")
+        
+        # Download source image
+        source_image_path = os.path.join(temp_dir, "source_face.jpg")
+        logger.info(f"[VideoSwap:{job_id}] Downloading source image: {request.image_url}")
+        await download_file(request.image_url, source_image_path)
+        
+        # Download video
+        video_path = os.path.join(temp_dir, "input_video.mp4")
+        logger.info(f"[VideoSwap:{job_id}] Downloading video: {request.video_url}")
+        await download_file(request.video_url, video_path)
+        
+        # Output path (associated with owner_key)
+        output_filename = f"{request.owner_key}_{job_id}_swapped.mp4"
+        output_path = os.path.join(OUTPUT_DIR, output_filename)
+        
+        # Add background task to process video
+        background_tasks.add_task(
+            process_video_in_background,
+            job_id,
+            request.owner_key,
+            source_image_path,
+            video_path,
+            output_path,
+            temp_dir
+        )
+        
+        # Determine output URL (S3 or local)
+        if settings.AWS_ACCESS_KEY_ID and settings.AWS_SECRET_ACCESS_KEY:
+            # Will be uploaded to S3
+            s3_key = f"swapped_result/{request.owner_key}/{output_filename}"
+            output_url = f"https://{settings.S3_UPLOAD_BUCKET}.s3.{settings.AWS_REGION}.amazonaws.com/{s3_key}"
+        else:
+            # Will be saved locally
+            output_url = f"/static/output/{output_filename}"
+        
+        logger.info(f"[VideoSwap:{job_id}] Job queued, returning immediately")
         
         return VideoSwapResponse(
             success=True,
-            message="Video face swap completed successfully",
+            message=f"Video swap job {job_id} queued successfully. Processing in background.",
             output_url=output_url,
             owner_key=request.owner_key
         )
@@ -232,36 +296,6 @@ async def swap_video_face(request: VideoSwapRequest):
     except httpx.HTTPError as e:
         logger.error(f"[VideoSwap] Failed to download file: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to download file: {str(e)}")
-    except RuntimeError as e:
-        logger.error(f"[VideoSwap] Processing error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"[VideoSwap] Unexpected error: {e}")
-        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
-
-
-@router.post("/swap-async", response_model=VideoSwapResponse)
-async def swap_video_face_async(request: VideoSwapRequest, background_tasks: BackgroundTasks):
-    """
-    Async version: Queue video face swap as a background task.
-    
-    This endpoint returns immediately and processes the video in the background.
-    You can implement a webhook or polling mechanism to get the result.
-    
-    - **owner_key**: Unique identifier for the owner
-    - **image_url**: URL of the source face image  
-    - **video_url**: URL of the video to process
-    """
-    job_id = str(uuid.uuid4())[:8]
-    output_filename = f"{request.owner_key}_{job_id}_swapped.mp4"
-    output_url = f"/static/output/{output_filename}"
-    
-    # TODO: Implement background processing with status tracking
-    # background_tasks.add_task(process_video_job, request, job_id)
-    
-    return VideoSwapResponse(
-        success=True,
-        message=f"Video swap job queued with ID: {job_id}. Processing will start shortly.",
-        output_url=output_url,
-        owner_key=request.owner_key
-    )
+        logger.error(f"[VideoSwap] Failed to queue job: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to queue job: {str(e)}")
