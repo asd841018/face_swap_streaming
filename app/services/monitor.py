@@ -53,6 +53,7 @@ async def monitor_streams():
                             API_SECRET = parts[1] if len(parts) >= 2 else None
                             
                             # 檢查是否有本地會話配置
+                            # Fix: 這一段永遠是None
                             local_session = session_manager.get_session_for_stream(path)
                             
                             source_face_url = None
