@@ -1,46 +1,12 @@
 import cv2
 import time
 import subprocess as sp
-import threading
-import multiprocessing
 import os
 import urllib.request
 import numpy as np
 from app.models import RealTimeSwapper
+from app.utils.frame_reader import FrameReader
 from app.core import logger, settings
-
-class FrameReader(threading.Thread):
-    """
-    Continuously reads frames from the capture object to ensure we always have the latest frame.
-    """
-    def __init__(self, url):
-        super().__init__()
-        self.url = url
-        self.cap = cv2.VideoCapture(url)
-        self.running = False
-        self.latest_frame = None
-        self.lock = threading.Lock()
-        self.daemon = True
-        self.connected = self.cap.isOpened()
-
-    def run(self):
-        self.running = True
-        while self.running and self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if not ret:
-                self.running = False
-                logger.info(f"[ProcessWorker] PID {os.getpid()} Cannot read frame from stream.")
-                break
-            with self.lock:
-                self.latest_frame = frame
-        self.cap.release()
-
-    def get_latest_frame(self):
-        with self.lock:
-            return self.latest_frame
-
-    def stop(self):
-        self.running = False
 
 def load_source_face(swapper, source_face_url):
     source_img = None
@@ -92,8 +58,7 @@ def run_stream_process(stop_event, queue, input_rtmp, output_rtmp, source_face_u
     
     video_bitrate = video_config.get("bitrate", "3000k")
     video_resolution = video_config.get("resolution", "1280x720")
-    frame_rate = video_config.get("frame_rate", 15)
-    swap_all = video_config.get("swap_all", False)
+    frame_rate = video_config.get("frame_rate", 30)
     
     # Parse resolution
     try:
@@ -118,8 +83,6 @@ def run_stream_process(stop_event, queue, input_rtmp, output_rtmp, source_face_u
         # model_path = os.path.join(root_dir, '.assets/models/dynamic_batch_model.onnx')
         
         providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-        
-        logger.info(f"[ProcessWorker] Loading model from {settings.SWAPPING_MODEL_PATH}...")
         swapper = RealTimeSwapper(
             providers=providers,
             face_analysis_name=settings.FACE_ANALYSIS_NAME,
@@ -176,23 +139,21 @@ def run_stream_process(stop_event, queue, input_rtmp, output_rtmp, source_face_u
         '-r', str(frame_rate),
         '-i', '-',
         '-c:v', 'h264_nvenc',
-        
+    
         # --- 修改點 1: 犧牲一點點畫質，換取最快速度 (解決 0.6x 卡頓問題) ---
         '-preset', 'p1',  # 改用 p1 (最快) 或 p2。原來的 p4 運算量太大，導致你推流來不及。
         
         # --- 修改點 2: 使用「超」低延遲模式 ---
         '-tune', 'ull',   # 改用 ull (Ultra Low Latency)。原來的 ll 還不夠激進。
-        
         '-rc', 'cbr',
         '-b:v', video_bitrate,
         '-maxrate', video_bitrate,
         '-bufsize', str(int(video_bitrate[:-1]) * 2) + video_bitrate[-1],
         '-g', str(frame_rate * 2),
         '-bf', '0',
-        
+
         # --- 修改點 3: 強制關閉預讀 (關鍵！解決 reordered frames) ---
         '-rc-lookahead', '0', # 叫顯卡不要偷看後面的畫面，直接編碼送出
-        
         '-pix_fmt', 'yuv420p',
         '-an',
         '-f', 'flv',
@@ -249,13 +210,13 @@ def run_stream_process(stop_event, queue, input_rtmp, output_rtmp, source_face_u
                 except Exception as e:
                     logger.error(f"[ProcessWorker] Error processing queue message: {e}")
 
+            # Throttle to target frame rate
             now = time.time()
             if now - last_frame_time < target_interval:
                 time.sleep(0.001)
                 continue
             
             frame = reader.get_latest_frame()
-            # print(frame.shape)
             if frame is None:
                 time.sleep(0.01)
                 continue
@@ -267,9 +228,8 @@ def run_stream_process(stop_event, queue, input_rtmp, output_rtmp, source_face_u
                 # if frame.shape[1] != W_OUT or frame.shape[0] != H_OUT:
                     # frame = cv2.resize(frame, (W_OUT, H_OUT))
                 
-                swapped_frame = swapper.swap_into(frame, src_faces, swap_all=swap_all)
-                cv2.imwrite(f"debug/debug_swapped_{frame_count}.jpg", swapped_frame)  # For debugging
-                
+                # swapped_frame = swapper.swap_into(frame, src_faces, swap_all=swap_all)
+                swapped_frame = swapper.deform_face(frame)
                 if swapped_frame.shape[1] != W_OUT or swapped_frame.shape[0] != H_OUT:
                     swapped_frame = cv2.resize(swapped_frame, (W_OUT, H_OUT))
 

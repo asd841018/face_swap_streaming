@@ -5,6 +5,8 @@ import numpy as np
 import insightface
 from insightface.app import FaceAnalysis
 from app.core import logger
+from app.core.config import settings
+from app.utils.deform import reshape_faces
 
 
 class RealTimeSwapper:
@@ -35,17 +37,17 @@ class RealTimeSwapper:
             det_size: Detection size for face analysis
             ctx_id: Context ID for GPU
         """
-        # Face detector + landmarks + recognition (for source face)
+        # Face detector + recognition (for source face embedding)
         self.app = FaceAnalysis(
             name=face_analysis_name, 
-            allowed_modules=["detection", "landmark", "recognition"],
+            allowed_modules=["detection", "recognition"],
             providers=providers
         )
         
         # Face detector + landmarks only (for target faces, faster)
         self.app2 = FaceAnalysis(
             name=face_analysis_name, 
-            allowed_modules=["detection", "landmark"],
+            allowed_modules=["detection", "landmark_2d_106"],
             providers=providers
         )
         
@@ -104,3 +106,23 @@ class RealTimeSwapper:
                 # If swap fails (edge cases), skip that face
                 continue
         return out
+
+    def deform_face(self, frame_bgr: np.ndarray) -> np.ndarray:
+        """
+        Deform the face in the frame based on given landmarks.
+        
+        Args:
+            frame_bgr: Frame in BGR format
+            landmarks: 2D landmarks of the face
+            
+        Returns:
+            Deformed frame in BGR format
+        """
+        faces = self.app2.get(frame_bgr)
+        if len(faces) > 0:
+            result = reshape_faces(
+                frame_bgr, faces,
+                cheek_strength=settings.CHEEK_STRENGTH, chin_strength=settings.CHIN_STRENGTH, grid_resolution=settings.GRID_RESOLUTION
+            )
+            return result
+        return frame_bgr

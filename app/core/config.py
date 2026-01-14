@@ -36,6 +36,11 @@ class Settings(BaseSettings):
     AWS_REGION: str = Field(default="ap-southeast-1", description="AWS region")
     AWS_ACCESS_KEY_ID: str = Field(default="", description="AWS access key ID")
     AWS_SECRET_ACCESS_KEY: str = Field(default="", description="AWS secret access key")
+    
+    # Face Adjustment Parameters
+    CHEEK_STRENGTH: float = Field(default=0.15, description="Strength of cheek adjustment")
+    CHIN_STRENGTH: float = Field(default=0.10, description="Strength of chin adjustment")
+    GRID_RESOLUTION: int = Field(default=50, description="Resolution of the adjustment grid")
 
     class Config:
         env_file = ".env"
