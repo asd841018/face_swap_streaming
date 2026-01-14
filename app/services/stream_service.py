@@ -102,7 +102,7 @@ class StreamService:
         API_KEY = path.split('/')[0]
         output_rtmp = f"rtmp://{self.mediamtx_host}:{self.mediamtx_port}/{API_KEY}_ai"
         input_rtmp = f"rtmp://{self.mediamtx_host}:{self.mediamtx_port}/{path}"
-        print(input_rtmp)
+
         logger.info(f"[Service] (Legacy) Requesting Worker Process: {input_rtmp} -> {output_rtmp}")
 
         try:
