@@ -8,6 +8,11 @@ from app.core import logger
 from app.core.config import settings
 from app.utils.deform import reshape_faces
 
+REF_URLS = [
+    "https://gsiai-dev-leo.s3.ap-southeast-1.amazonaws.com/public-example/30a6d8bd-076c-4ef9-ad28-9853dbf29970.jpg",
+    "https://gsiai-dev-leo.s3.ap-southeast-1.amazonaws.com/public-example/4bfd2583-1f56-43ae-b258-c80c2d2d2f6c.jpg",
+    "https://gsiai-dev-leo.s3.ap-southeast-1.amazonaws.com/public-example/74122544-0ac3-4cde-a8f8-c7b93980a681.jpg",
+]
 
 class RealTimeSwapper:
     """
@@ -24,7 +29,7 @@ class RealTimeSwapper:
         providers: list, 
         face_analysis_name: str, 
         inswapper_path: str, 
-        det_size: tuple = (320, 320), 
+        det_size: tuple = (640, 640), 
         ctx_id: int = 0
     ):
         """
@@ -107,7 +112,7 @@ class RealTimeSwapper:
                 continue
         return out
 
-    def deform_face(self, frame_bgr: np.ndarray) -> np.ndarray:
+    def deform_face(self, frame_bgr: np.ndarray, ref_image_url: str) -> np.ndarray:
         """
         Deform the face in the frame based on given landmarks.
         
@@ -120,9 +125,19 @@ class RealTimeSwapper:
         """
         faces = self.app2.get(frame_bgr)
         if len(faces) > 0:
+            if ref_image_url == REF_URLS[0]:
+                cheek_strength = 0.10
+                chin_strength = 0.40
+            elif ref_image_url == REF_URLS[1]:
+                cheek_strength = 0.10
+                chin_strength = 0.50
+            elif ref_image_url == REF_URLS[2]:
+                cheek_strength = 0.10
+                chin_strength = 0.60
+
             result = reshape_faces(
                 frame_bgr, faces,
-                cheek_strength=settings.CHEEK_STRENGTH, chin_strength=settings.CHIN_STRENGTH, grid_resolution=settings.GRID_RESOLUTION
+                cheek_strength=cheek_strength, chin_strength=chin_strength, grid_resolution=settings.GRID_RESOLUTION
             )
             return result
         return frame_bgr

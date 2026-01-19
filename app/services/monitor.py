@@ -74,6 +74,9 @@ async def monitor_streams():
                                     data = api_response.get("data", {})
                                     if data:
                                         source_face_url = data.get('face_image_url', None)
+                                        ref_image_url = data.get('ref_image_url', None)
+                                        use_image_filter = data.get('use_image_filter', False)
+                                        logger.debug(f"[Monitor] Fetched face image for {path} from external API")
                                 except Exception as e:
                                     logger.error(f"[Monitor] Failed to fetch face image for {path}: {e}")
 
@@ -90,7 +93,9 @@ async def monitor_streams():
                                     # 沒有本地配置，使用舊的方式
                                     success = stream_service.start_worker_legacy(
                                         path=path, 
-                                        source_face_url=source_face_url
+                                        source_face_url=source_face_url,
+                                        ref_image_url=ref_image_url,
+                                        use_image_filter=use_image_filter
                                     )
                                 
                                 if success:

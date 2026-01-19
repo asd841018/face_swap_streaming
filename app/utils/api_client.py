@@ -92,8 +92,8 @@ if __name__ == "__main__":
     # 範例使用
     client = FaceswapApiClient(
         base_url="https://api.aimate.am",
-        api_key="ak_am_rGK2yZ0LypvZ6W319KzXVjrzqCaYn713",
-        api_secret="YmmSAFLIbbQTYkBjlp52AcvnQVO3HZcm"
+        api_key="ak_am_xyNgXgGFYmn3BcWICcHZDoEVM027Kdu9",
+        api_secret="E5E2yQFH3G7D18IisPKiNYYsYbl5FEZK"
     )
     response = client.get_face_image()
     print(response)

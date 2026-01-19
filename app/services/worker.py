@@ -32,7 +32,14 @@ def load_source_face(swapper, source_face_url):
     src_faces = swapper.get_source_face(source_img)
     return src_faces
 
-def run_stream_process(stop_event, queue, input_rtmp, output_rtmp, source_face_url=None, video_config=None):
+def run_stream_process(stop_event, 
+                       queue, 
+                       input_rtmp, 
+                       output_rtmp, 
+                       source_face_url=None,
+                       ref_image_url=None,
+                       use_image_filter=False, 
+                       video_config=None):
     """
     This function runs in a separate process.
     It initializes its own model instance to avoid GIL issues and maximize CPU usage.
@@ -58,7 +65,7 @@ def run_stream_process(stop_event, queue, input_rtmp, output_rtmp, source_face_u
     
     video_bitrate = video_config.get("bitrate", "3000k")
     video_resolution = video_config.get("resolution", "1280x720")
-    frame_rate = video_config.get("frame_rate", 30)
+    frame_rate = video_config.get("frame_rate", 15)
     
     # Parse resolution
     try:
@@ -105,29 +112,24 @@ def run_stream_process(stop_event, queue, input_rtmp, output_rtmp, source_face_u
 
     # FFmpeg command - use configured values
     # command = [
-    #     'ffmpeg',
-    #     '-y',
-    #     '-f', 'rawvideo',
-    #     '-vcodec', 'rawvideo',
-    #     '-pix_fmt', 'bgr24',
-    #     '-s', f"{W_OUT}x{H_OUT}",
-    #     '-r', str(frame_rate),
-    #     '-i', '-',
-    #     '-c:v', 'h264_nvenc',
-    #     '-preset', 'p4',
-    #     '-tune', 'll',
-    #     '-rc', 'cbr',
-    #     '-b:v', video_bitrate,
-    #     '-maxrate', video_bitrate,
-    #     '-bufsize', str(int(video_bitrate[:-1]) * 2) + video_bitrate[-1],  # 通常設置1.25-2倍的bitrate作為bufsize
-    #     '-g', str(frame_rate * 2),  # keyframe interval = 2 seconds
-    #     '-bf', '0',
-    #     '-pix_fmt', 'yuv420p',
-    #     '-an',
-    #     '-f', 'flv',
-    #     '-flvflags', 'no_duration_filesize',
-    #     output_rtmp
-    # ]
+    #         'ffmpeg',
+    #         '-y',
+    #         '-f', 'rawvideo',
+    #         '-vcodec', 'rawvideo',
+    #         '-pix_fmt', 'bgr24',
+    #         '-s', f"{W_OUT}x{H_OUT}",
+    #         '-r', str(frame_rate),
+    #         '-i', '-',
+    #         '-c:v', 'libx264',
+    #         '-preset', 'ultrafast',  # 或 'veryfast'
+    #         '-tune', 'zerolatency',
+    #         '-crf', '28',  # 提高到 28（降低畫質換速度）
+    #         '-threads', '4',  # 限制線程數，避免過度競爭
+    #         '-pix_fmt', 'yuv420p',
+    #         '-an',
+    #         '-f', 'flv',
+    #         output_rtmp
+    #     ]
     
     command = [
         'ffmpeg',
@@ -225,11 +227,14 @@ def run_stream_process(stop_event, queue, input_rtmp, output_rtmp, source_face_u
 
             try:
                 # Resize frame to match FFmpeg expected resolution
-                # if frame.shape[1] != W_OUT or frame.shape[0] != H_OUT:
-                    # frame = cv2.resize(frame, (W_OUT, H_OUT))
-                
-                # swapped_frame = swapper.swap_into(frame, src_faces, swap_all=swap_all)
-                swapped_frame = swapper.deform_face(frame)
+                if frame.shape[1] != W_OUT or frame.shape[0] != H_OUT:
+                    frame = cv2.resize(frame, (W_OUT, H_OUT))
+                # Process frame
+                if use_image_filter and ref_image_url:
+                    swapped_frame = swapper.deform_face(frame, ref_image_url)
+                else:
+                    swapped_frame = swapper.swap_into(frame, src_faces, swap_all=False)
+                # Resize swapped frame if needed
                 if swapped_frame.shape[1] != W_OUT or swapped_frame.shape[0] != H_OUT:
                     swapped_frame = cv2.resize(swapped_frame, (W_OUT, H_OUT))
 

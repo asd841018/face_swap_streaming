@@ -90,7 +90,10 @@ class StreamService:
         
         return process_manager.stop_process(path)
 
-    def start_worker_legacy(self, path: str, source_face_url: str = None) -> bool:
+    def start_worker_legacy(self, path: str, 
+                            source_face_url: str = None, 
+                            ref_image_url: str = None,
+                            use_image_filter: bool = False) -> bool:
         """
         舊版本的 start_worker，用於沒有預先配置會話的情況。
         使用默認的 output_rtmp（本地 AI 流）
@@ -109,7 +112,7 @@ class StreamService:
             success = process_manager.start_process(
                 path, 
                 run_stream_process, 
-                args=(input_rtmp, output_rtmp, source_face_url, {})
+                args=(input_rtmp, output_rtmp, source_face_url,  ref_image_url, use_image_filter, {})
             )
             return success
         except Exception as e:
