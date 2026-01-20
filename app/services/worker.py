@@ -12,7 +12,7 @@ def load_source_face(swapper, source_face_url):
     source_img = None
     if source_face_url:
         try:
-            logger.info(f"[ProcessWorker] Downloading source face from {source_face_url}...")
+            # logger.info(f"[ProcessWorker] Downloading source face from {source_face_url}...")
             # Set a timeout for the request
             with urllib.request.urlopen(source_face_url, timeout=10) as req:
                 arr = np.asarray(bytearray(req.read()), dtype=np.uint8)
@@ -202,13 +202,20 @@ def run_stream_process(stop_event,
                     message = queue.get_nowait()
                     if message.get('type') == 'update_source_face':
                         new_url = message.get('url')
-                        logger.info(f"[ProcessWorker] Received update source face request: {new_url}")
+                        # logger.info(f"[ProcessWorker] Received update source face request: {new_url}")
                         new_src_faces = load_source_face(swapper, new_url)
                         if new_src_faces is not None:
                             src_faces = new_src_faces
-                            logger.info("[ProcessWorker] Source face updated successfully.")
+                            # logger.info("[ProcessWorker] Source face updated successfully.")
                         else:
                             logger.warning("[ProcessWorker] Failed to update source face, keeping previous one.")
+                    if message.get('type') == 'update_ref_image':
+                        new_url = message.get('url')
+                        # logger.info(f"[ProcessWorker] Received update ref image request: {new_url}")
+                        ref_image_url = new_url
+                    if message.get('type') == 'update_use_image_filter':
+                        new_value = message.get('use_image_filter', False)
+                        use_image_filter = new_value
                 except Exception as e:
                     logger.error(f"[ProcessWorker] Error processing queue message: {e}")
 

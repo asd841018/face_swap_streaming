@@ -57,6 +57,8 @@ async def monitor_streams():
                             local_session = session_manager.get_session_for_stream(path)
                             
                             source_face_url = None
+                            ref_image_url = None
+                            use_image_filter = False
                             use_local_config = False
                             
                             if local_session:
@@ -87,6 +89,7 @@ async def monitor_streams():
                             if not is_running:
                                 # Start new worker
                                 if use_local_config:
+                                    print("-------------------- Using local config ------------------")
                                     # 使用本地會話配置啟動（包含 output_url 等）
                                     success = stream_service.start_worker(path=path, query=None)
                                 else:
@@ -99,20 +102,37 @@ async def monitor_streams():
                                     )
                                 
                                 if success:
-                                    stream_states[path] = source_face_url
+                                    stream_states[path] = {"source_face": source_face_url}
+                                    stream_states[path] = {"ref_image": ref_image_url}
+                                    stream_states[path] = {"use_image_filter": use_image_filter}
+                                    logger.info(f"[Monitor] Started worker for new stream: {path}")
                             else:
                                 # Worker is running, check for update
                                 # 只在非本地配置模式下檢查外部 API 的更新
                                 # 本地配置的更新通過 /api/sessions/{id}/source-face API 處理
                                 if not use_local_config:
-                                    last_url = stream_states.get(path)
-                                    if source_face_url != last_url:
-                                        logger.info(f"[Monitor] Detected source face change for {path}. Updating worker.")
+                                    last_data = stream_states.get(path)
+                                    if source_face_url != last_data.get("source_face"):
+                                        # logger.info(f"[Monitor] Detected source face change for {path}. Updating worker.")
                                         process_manager.send_message(path, {
                                             'type': 'update_source_face',
                                             'url': source_face_url
                                         })
-                                        stream_states[path] = source_face_url
+                                        stream_states[path] = {"source_face": source_face_url}
+                                    if ref_image_url != last_data.get("ref_image"):
+                                        # logger.info(f"[Monitor] Detected ref image change for {path}. Updating worker.")
+                                        process_manager.send_message(path, {
+                                            'type': 'update_ref_image',
+                                            'url': ref_image_url
+                                        })
+                                        stream_states[path] = {"ref_image": ref_image_url}
+                                    if use_image_filter != last_data.get("use_image_filter"):
+                                        # logger.info(f"[Monitor] Detected image filter change for {path}. Updating worker.")
+                                        process_manager.send_message(path, {
+                                            'type': 'update_use_image_filter',
+                                            'use_image_filter': use_image_filter
+                                        })
+                                        stream_states[path] = {"use_image_filter": use_image_filter}
 
                         # 2. Stop workers for ended streams
                         # Get all active worker paths from stream_service/process_manager
