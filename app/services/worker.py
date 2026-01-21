@@ -111,57 +111,57 @@ def run_stream_process(stop_event,
         return
 
     # FFmpeg command - use configured values
-    # command = [
-    #         'ffmpeg',
-    #         '-y',
-    #         '-f', 'rawvideo',
-    #         '-vcodec', 'rawvideo',
-    #         '-pix_fmt', 'bgr24',
-    #         '-s', f"{W_OUT}x{H_OUT}",
-    #         '-r', str(frame_rate),
-    #         '-i', '-',
-    #         '-c:v', 'libx264',
-    #         '-preset', 'ultrafast',  # 或 'veryfast'
-    #         '-tune', 'zerolatency',
-    #         '-crf', '28',  # 提高到 28（降低畫質換速度）
-    #         '-threads', '4',  # 限制線程數，避免過度競爭
-    #         '-pix_fmt', 'yuv420p',
-    #         '-an',
-    #         '-f', 'flv',
-    #         output_rtmp
-    #     ]
-    
     command = [
-        'ffmpeg',
-        '-y',
-        '-f', 'rawvideo',
-        '-vcodec', 'rawvideo',
-        '-pix_fmt', 'bgr24',
-        '-s', f"{W_OUT}x{H_OUT}",
-        '-r', str(frame_rate),
-        '-i', '-',
-        '-c:v', 'h264_nvenc',
+            'ffmpeg',
+            '-y',
+            '-f', 'rawvideo',
+            '-vcodec', 'rawvideo',
+            '-pix_fmt', 'bgr24',
+            '-s', f"{W_OUT}x{H_OUT}",
+            '-r', str(frame_rate),
+            '-i', '-',
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',  # 或 'veryfast'
+            '-tune', 'zerolatency',
+            '-crf', '28',  # 提高到 28（降低畫質換速度）
+            '-threads', '4',  # 限制線程數，避免過度競爭
+            '-pix_fmt', 'yuv420p',
+            '-an',
+            '-f', 'flv',
+            output_rtmp
+        ]
     
-        # --- 修改點 1: 犧牲一點點畫質，換取最快速度 (解決 0.6x 卡頓問題) ---
-        '-preset', 'p1',  # 改用 p1 (最快) 或 p2。原來的 p4 運算量太大，導致你推流來不及。
+    # command = [
+    #     'ffmpeg',
+    #     '-y',
+    #     '-f', 'rawvideo',
+    #     '-vcodec', 'rawvideo',
+    #     '-pix_fmt', 'bgr24',
+    #     '-s', f"{W_OUT}x{H_OUT}",
+    #     '-r', str(frame_rate),
+    #     '-i', '-',
+    #     '-c:v', 'h264_nvenc',
+    
+    #     # --- 修改點 1: 犧牲一點點畫質，換取最快速度 (解決 0.6x 卡頓問題) ---
+    #     '-preset', 'p1',  # 改用 p1 (最快) 或 p2。原來的 p4 運算量太大，導致你推流來不及。
         
-        # --- 修改點 2: 使用「超」低延遲模式 ---
-        '-tune', 'ull',   # 改用 ull (Ultra Low Latency)。原來的 ll 還不夠激進。
-        '-rc', 'cbr',
-        '-b:v', video_bitrate,
-        '-maxrate', video_bitrate,
-        '-bufsize', str(int(video_bitrate[:-1]) * 2) + video_bitrate[-1],
-        '-g', str(frame_rate * 2),
-        '-bf', '0',
+    #     # --- 修改點 2: 使用「超」低延遲模式 ---
+    #     '-tune', 'ull',   # 改用 ull (Ultra Low Latency)。原來的 ll 還不夠激進。
+    #     '-rc', 'cbr',
+    #     '-b:v', video_bitrate,
+    #     '-maxrate', video_bitrate,
+    #     '-bufsize', str(int(video_bitrate[:-1]) * 2) + video_bitrate[-1],
+    #     '-g', str(frame_rate * 2),
+    #     '-bf', '0',
 
-        # --- 修改點 3: 強制關閉預讀 (關鍵！解決 reordered frames) ---
-        '-rc-lookahead', '0', # 叫顯卡不要偷看後面的畫面，直接編碼送出
-        '-pix_fmt', 'yuv420p',
-        '-an',
-        '-f', 'flv',
-        '-flvflags', 'no_duration_filesize',
-        output_rtmp
-    ]
+    #     # --- 修改點 3: 強制關閉預讀 (關鍵！解決 reordered frames) ---
+    #     '-rc-lookahead', '0', # 叫顯卡不要偷看後面的畫面，直接編碼送出
+    #     '-pix_fmt', 'yuv420p',
+    #     '-an',
+    #     '-f', 'flv',
+    #     '-flvflags', 'no_duration_filesize',
+    #     output_rtmp
+    # ]
 
     ffmpeg_process = None
     reader = None
@@ -206,13 +206,13 @@ def run_stream_process(stop_event,
                         new_src_faces = load_source_face(swapper, new_url)
                         if new_src_faces is not None:
                             src_faces = new_src_faces
-                            # logger.info("[ProcessWorker] Source face updated successfully.")
+                            logger.info("[ProcessWorker] Source face updated successfully.")
                         else:
                             logger.warning("[ProcessWorker] Failed to update source face, keeping previous one.")
                     if message.get('type') == 'update_ref_image':
                         new_url = message.get('url')
-                        # logger.info(f"[ProcessWorker] Received update ref image request: {new_url}")
                         ref_image_url = new_url
+                        logger.info(f"[ProcessWorker] Received update ref image request: {new_url}")
                     if message.get('type') == 'update_use_image_filter':
                         new_value = message.get('use_image_filter', False)
                         use_image_filter = new_value

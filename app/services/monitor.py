@@ -40,7 +40,6 @@ async def monitor_streams():
                             # Check if the path has active publishers (source is ready)
                             if item.get("ready", False): 
                                 current_paths.add(path_name)
-
                         # 1. Start workers for new streams or update existing ones
                         for path in current_paths:
                             if path.endswith("_ai"): # Ignore our own output streams
@@ -51,88 +50,63 @@ async def monitor_streams():
                             parts = path.split('/')
                             API_KEY = parts[0] if len(parts) >= 1 else None
                             API_SECRET = parts[1] if len(parts) >= 2 else None
-                            
-                            # 檢查是否有本地會話配置
-                            # Fix: 這一段永遠是None
-                            local_session = session_manager.get_session_for_stream(path)
-                            
-                            source_face_url = None
-                            ref_image_url = None
-                            use_image_filter = False
-                            use_local_config = False
-                            
-                            if local_session:
-                                # 使用本地預設的配置
-                                source_face_url = local_session.config.source_face_url
-                                use_local_config = True
-                                logger.debug(f"[Monitor] Using local session config for {path}")
-                            else:
-                                # 沒有本地配置，從外部 API 獲取
-                                try:
-                                    client = FaceswapApiClient(base_url=BASE_URL, 
-                                                               api_key=API_KEY, 
-                                                               api_secret=API_SECRET)
-                                    api_response = client.get_face_image()
-                                    data = api_response.get("data", {})
-                                    if data:
-                                        source_face_url = data.get('face_image_url', None)
-                                        ref_image_url = data.get('ref_image_url', None)
-                                        use_image_filter = data.get('use_image_filter', False)
-                                        logger.debug(f"[Monitor] Fetched face image for {path} from external API")
-                                except Exception as e:
-                                    logger.error(f"[Monitor] Failed to fetch face image for {path}: {e}")
+
+                            try:
+                                client = FaceswapApiClient(base_url=BASE_URL, 
+                                                            api_key=API_KEY, 
+                                                            api_secret=API_SECRET)
+                                api_response = client.get_face_image()
+                                data = api_response.get("data", {})
+                                if data:
+                                    source_face_url = data.get('face_image_url', None)
+                                    ref_image_url = data.get('ref_image_url', None)
+                                    use_image_filter = data.get('use_image_filter', False)
+                                    logger.debug(f"[Monitor] Fetched face image for {path} from external API")
+                            except Exception as e:
+                                logger.error(f"[Monitor] Failed to fetch face image for {path}: {e}")
 
                             # Check if worker is already running
                             from app.services.process_manager import process_manager
                             is_running = path in process_manager.active_processes
 
                             if not is_running:
-                                # Start new worker
-                                if use_local_config:
-                                    print("-------------------- Using local config ------------------")
-                                    # 使用本地會話配置啟動（包含 output_url 等）
-                                    success = stream_service.start_worker(path=path, query=None)
-                                else:
-                                    # 沒有本地配置，使用舊的方式
-                                    success = stream_service.start_worker_legacy(
-                                        path=path, 
-                                        source_face_url=source_face_url,
-                                        ref_image_url=ref_image_url,
-                                        use_image_filter=use_image_filter
-                                    )
+                                # new worker, start it
+                                success = stream_service.start_worker_legacy(
+                                    path=path, 
+                                    source_face_url=source_face_url,
+                                    ref_image_url=ref_image_url,
+                                    use_image_filter=use_image_filter
+                                )
                                 
                                 if success:
-                                    stream_states[path] = {"source_face": source_face_url}
-                                    stream_states[path] = {"ref_image": ref_image_url}
-                                    stream_states[path] = {"use_image_filter": use_image_filter}
+                                    stream_states[path] = {"source_face": source_face_url, 
+                                                           "ref_image": ref_image_url,
+                                                           "use_image_filter": use_image_filter}
                                     logger.info(f"[Monitor] Started worker for new stream: {path}")
                             else:
                                 # Worker is running, check for update
-                                # 只在非本地配置模式下檢查外部 API 的更新
-                                # 本地配置的更新通過 /api/sessions/{id}/source-face API 處理
-                                if not use_local_config:
-                                    last_data = stream_states.get(path)
-                                    if source_face_url != last_data.get("source_face"):
-                                        # logger.info(f"[Monitor] Detected source face change for {path}. Updating worker.")
-                                        process_manager.send_message(path, {
-                                            'type': 'update_source_face',
-                                            'url': source_face_url
-                                        })
-                                        stream_states[path] = {"source_face": source_face_url}
-                                    if ref_image_url != last_data.get("ref_image"):
-                                        # logger.info(f"[Monitor] Detected ref image change for {path}. Updating worker.")
-                                        process_manager.send_message(path, {
-                                            'type': 'update_ref_image',
-                                            'url': ref_image_url
-                                        })
-                                        stream_states[path] = {"ref_image": ref_image_url}
-                                    if use_image_filter != last_data.get("use_image_filter"):
-                                        # logger.info(f"[Monitor] Detected image filter change for {path}. Updating worker.")
-                                        process_manager.send_message(path, {
-                                            'type': 'update_use_image_filter',
-                                            'use_image_filter': use_image_filter
-                                        })
-                                        stream_states[path] = {"use_image_filter": use_image_filter}
+                                last_data = stream_states.get(path)
+                                if source_face_url != last_data.get("source_face"):
+                                    logger.info(f"[Monitor] Detected source face change for {path}. Updating worker.")
+                                    process_manager.send_message(path, {
+                                        'type': 'update_source_face',
+                                        'url': source_face_url
+                                    })
+                                    stream_states[path]["source_face"] = source_face_url
+                                if ref_image_url != last_data.get("ref_image"):
+                                    logger.info(f"[Monitor] Detected ref image change for {path}. Updating worker.")
+                                    process_manager.send_message(path, {
+                                        'type': 'update_ref_image',
+                                        'url': ref_image_url
+                                    })
+                                    stream_states[path]["ref_image"] = ref_image_url
+                                if use_image_filter != last_data.get("use_image_filter"):
+                                    logger.info(f"[Monitor] Detected image filter change for {path}. Updating worker.")
+                                    process_manager.send_message(path, {
+                                        'type': 'update_use_image_filter',
+                                        'use_image_filter': use_image_filter
+                                    })
+                                    stream_states[path]["use_image_filter"] = use_image_filter
 
                         # 2. Stop workers for ended streams
                         # Get all active worker paths from stream_service/process_manager
