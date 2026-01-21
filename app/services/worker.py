@@ -6,6 +6,7 @@ import urllib.request
 import numpy as np
 from app.models import RealTimeSwapper
 from app.utils.frame_reader import FrameReader
+# from app.utils.color_filtering import beauty_pipeline
 from app.core import logger, settings
 
 def load_source_face(swapper, source_face_url):
@@ -239,6 +240,7 @@ def run_stream_process(stop_event,
                 # Process frame
                 if use_image_filter and ref_image_url:
                     swapped_frame = swapper.deform_face(frame, ref_image_url)
+                    # swapped_frame = beauty_pipeline(swapped_frame)
                 else:
                     swapped_frame = swapper.swap_into(frame, src_faces, swap_all=False)
                 # Resize swapped frame if needed

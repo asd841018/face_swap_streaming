@@ -7,6 +7,8 @@ from insightface.app import FaceAnalysis
 from app.core import logger
 from app.core.config import settings
 from app.utils.deform import reshape_faces
+from app.utils.color_filtering import beauty_pipeline
+from app.utils.old_film import vintage_filter
 
 REF_URLS = [
     "https://gsiai-dev-leo.s3.ap-southeast-1.amazonaws.com/public-example/30a6d8bd-076c-4ef9-ad28-9853dbf29970.jpg",
@@ -128,16 +130,31 @@ class RealTimeSwapper:
             if ref_image_url == REF_URLS[0]:
                 cheek_strength = 0.10
                 chin_strength = 0.40
+                result = reshape_faces(
+                frame_bgr, faces,
+                cheek_strength=cheek_strength, chin_strength=chin_strength, grid_resolution=settings.GRID_RESOLUTION
+                )
+                result = vintage_filter(result)
             elif ref_image_url == REF_URLS[1]:
                 cheek_strength = 0.10
                 chin_strength = 0.50
+                result = reshape_faces(
+                frame_bgr, faces,
+                cheek_strength=cheek_strength, chin_strength=chin_strength, grid_resolution=settings.GRID_RESOLUTION
+                )
+                result = beauty_pipeline(result)
             elif ref_image_url == REF_URLS[2]:
                 cheek_strength = 0.10
                 chin_strength = 0.60
-
-            result = reshape_faces(
+                result = reshape_faces(
                 frame_bgr, faces,
                 cheek_strength=cheek_strength, chin_strength=chin_strength, grid_resolution=settings.GRID_RESOLUTION
-            )
+                )
+                result = vintage_filter(result)
+
+            # result = reshape_faces(
+            #     frame_bgr, faces,
+            #     cheek_strength=cheek_strength, chin_strength=chin_strength, grid_resolution=settings.GRID_RESOLUTION
+            # )
             return result
         return frame_bgr
