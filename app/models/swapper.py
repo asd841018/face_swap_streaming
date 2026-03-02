@@ -11,9 +11,9 @@ from app.utils.color_filtering import beauty_pipeline
 from app.utils.old_film import vintage_filter
 
 REF_URLS = [
-    "https://gsiai-dev-leo.s3.ap-southeast-1.amazonaws.com/public-example/30a6d8bd-076c-4ef9-ad28-9853dbf29970.jpg",
-    "https://gsiai-dev-leo.s3.ap-southeast-1.amazonaws.com/public-example/4bfd2583-1f56-43ae-b258-c80c2d2d2f6c.jpg",
-    "https://gsiai-dev-leo.s3.ap-southeast-1.amazonaws.com/public-example/74122544-0ac3-4cde-a8f8-c7b93980a681.jpg",
+    "https://gsiai-dev-leo.s3.ap-southeast-1.amazonaws.com/public-example/f6ff09ff-9255-473d-a76e-8b9dc8a05a32.png",
+    "https://gsiai-dev-leo.s3.ap-southeast-1.amazonaws.com/public-example/6b0bc0da-0047-4066-8f15-504945bf656a.png",
+    "https://gsiai-dev-leo.s3.ap-southeast-1.amazonaws.com/public-example/d5871d46-e53a-48b7-a843-de48f683696c.png",
 ]
 
 class RealTimeSwapper:
@@ -128,23 +128,33 @@ class RealTimeSwapper:
         faces = self.app2.get(frame_bgr)
         if len(faces) > 0:
             if ref_image_url == REF_URLS[0]:
-                cheek_strength = 0.10
-                chin_strength = 0.40
+                cheek_strength = 0.12
+                chin_strength = 0.60
                 result = reshape_faces(
                 frame_bgr, faces,
                 cheek_strength=cheek_strength, chin_strength=chin_strength, grid_resolution=settings.GRID_RESOLUTION
                 )
-                result = vintage_filter(result)
+                result = beauty_pipeline(frame=result,
+                                        strength=0.45,
+                                        brighten=5,
+                                        smooth=0.35,
+                                        mode="cold")
+                
             elif ref_image_url == REF_URLS[1]:
-                cheek_strength = 0.10
-                chin_strength = 0.50
+                cheek_strength = 0.12
+                chin_strength = 0.60
                 result = reshape_faces(
                 frame_bgr, faces,
                 cheek_strength=cheek_strength, chin_strength=chin_strength, grid_resolution=settings.GRID_RESOLUTION
                 )
-                result = beauty_pipeline(result)
+                result = beauty_pipeline(frame=result,
+                                        strength=0.45,
+                                        brighten=5,
+                                        smooth=0.35,
+                                        mode="warm")
+                
             elif ref_image_url == REF_URLS[2]:
-                cheek_strength = 0.10
+                cheek_strength = 0.12
                 chin_strength = 0.60
                 result = reshape_faces(
                 frame_bgr, faces,
