@@ -4,7 +4,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.services.monitor import monitor_streams
-from app.core import logger, settings
+from app.core import logger
+from app.config import settings
 from app.routes.webhooks import router as webhooks_router
 from app.routes.sessions import router as sessions_router
 from app.routes.system import router as system_router

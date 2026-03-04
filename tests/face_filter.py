@@ -2,7 +2,7 @@ import cv2
 import numpy as np
 from scipy.interpolate import Rbf
 from app.models.swapper import RealTimeSwapper
-from app.core.config import settings
+from face_swap_streaming.app.config import settings
 
 def get_face_control_points_106(landmarks: np.ndarray):
     """

@@ -15,7 +15,7 @@ from pydantic import BaseModel, HttpUrl
 from typing import Optional
 
 from app.core import logger
-from app.core.config import settings
+from app.config import settings
 from app.models.swapper import RealTimeSwapper
 from app.schemas.video import VideoSwapRequest, VideoSwapResponse
 

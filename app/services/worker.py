@@ -7,7 +7,8 @@ import numpy as np
 from app.models import RealTimeSwapper
 from app.utils.frame_reader import FrameReader
 # from app.utils.color_filtering import beauty_pipeline
-from app.core import logger, settings
+from app.core import logger
+from app.config import settings
 
 def load_source_face(swapper, source_face_url):
     source_img = None
@@ -90,7 +91,7 @@ def run_stream_process(stop_event,
         root_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
         # model_path = os.path.join(root_dir, '.assets/models/dynamic_batch_model.onnx')
         
-        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        providers = ['CUDAExecutionProvider']
         swapper = RealTimeSwapper(
             providers=providers,
             face_analysis_name=settings.FACE_ANALYSIS_NAME,
@@ -234,7 +235,7 @@ def run_stream_process(stop_event,
             last_frame_time = time.time()
 
             try:
-                # Resize frame to match FFmpeg expected resolution
+                # # Resize frame to match FFmpeg expected resolution
                 if frame.shape[1] != W_OUT or frame.shape[0] != H_OUT:
                     frame = cv2.resize(frame, (W_OUT, H_OUT))
                 # Process frame
@@ -243,10 +244,10 @@ def run_stream_process(stop_event,
                     # swapped_frame = beauty_pipeline(swapped_frame)
                 else:
                     swapped_frame = swapper.swap_into(frame, src_faces, swap_all=False)
-                # Resize swapped frame if needed
+                # # Resize swapped frame if needed
                 if swapped_frame.shape[1] != W_OUT or swapped_frame.shape[0] != H_OUT:
                     swapped_frame = cv2.resize(swapped_frame, (W_OUT, H_OUT))
-
+                # swapped_frame = frame
                 ffmpeg_process.stdin.write(swapped_frame.tobytes())
                 # ffmpeg_process.stdin.write(frame.tobytes())
                 

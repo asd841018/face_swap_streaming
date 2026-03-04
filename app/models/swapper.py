@@ -5,7 +5,7 @@ import numpy as np
 import insightface
 from insightface.app import FaceAnalysis
 from app.core import logger
-from app.core.config import settings
+from app.config import settings
 from app.utils.deform import reshape_faces
 from app.utils.color_filtering import beauty_pipeline
 from app.utils.old_film import vintage_filter
