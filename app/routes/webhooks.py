@@ -19,9 +19,6 @@ async def on_publish(
 ):
     """
     Webhook triggered by MediaMTX when a stream is published.
-    
-    注意：目前主要使用 monitor.py 的輪詢方式來偵測新流，
-    這個 webhook 僅作為備用或將來使用。
     """
     stream_service.start_worker(path, query)
     return {"action": "publish"}
@@ -33,9 +30,6 @@ async def on_publish_done(
 ):
     """
     Webhook triggered by MediaMTX when a stream ends.
-    
-    注意：目前主要使用 monitor.py 的輪詢方式來偵測流結束，
-    這個 webhook 僅作為備用或將來使用。
     """
     stream_service.stop_worker(path)
     return {"action": "publish_done"}

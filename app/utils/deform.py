@@ -383,17 +383,14 @@ def reshape_faces(img: np.ndarray,
     
     for face in faces:
         landmarks = face.get("landmark_2d_106")
-        bbox = face.get("bbox")
         if landmarks is not None and len(landmarks) == 106:
             result = reshape_face(
                 img=result,
                 landmarks=landmarks,
                 bbox=None,
-                cheek_strength=cheek_strength, chin_strength=chin_strength, grid_resolution=grid_resolution
+                cheek_strength=cheek_strength,
+                chin_strength=chin_strength,
+                grid_resolution=grid_resolution,
             )
-            # result = reshape_face(
-                # result, landmarks, bbox,
-                # cheek_strength, chin_strength, grid_resolution
-            # )
     
     return result

@@ -1,22 +1,20 @@
 import json
 import os
+import tempfile
+import threading
 from datetime import datetime
-from typing import Dict, Optional, Any
+from typing import Dict, Optional
 from app.schemas.session import SessionConfig, StreamStatus
 from app.core import logger
 
 SESSION_FILE = "user_sessions.json"
 
+
 class Session:
-    """代表一個用戶的推流會話"""
-    def __init__(
-        self,
-        session_id: str,
-        api_key: str,
-        api_secret: str,
-        config: SessionConfig,
-        status: StreamStatus = StreamStatus.PENDING
-    ):
+    """A single user streaming session."""
+
+    def __init__(self, session_id: str, api_key: str, api_secret: str,
+                 config: SessionConfig, status: StreamStatus = StreamStatus.PENDING):
         self.session_id = session_id
         self.api_key = api_key
         self.api_secret = api_secret
@@ -24,11 +22,7 @@ class Session:
         self.status = status
         self.created_at = datetime.now()
         self.updated_at = datetime.now()
-        self.stats = {
-            "uptime_seconds": 0,
-            "frames_processed": 0,
-            "current_fps": 0
-        }
+        self.stats: Dict = {"uptime_seconds": 0, "frames_processed": 0, "current_fps": 0}
 
     def to_dict(self) -> Dict:
         return {
@@ -39,174 +33,143 @@ class Session:
             "status": self.status.value,
             "created_at": self.created_at.isoformat(),
             "updated_at": self.updated_at.isoformat(),
-            "stats": self.stats
+            "stats": self.stats,
         }
 
     @classmethod
     def from_dict(cls, data: Dict) -> "Session":
-        session = cls(
+        s = cls(
             session_id=data["session_id"],
             api_key=data["api_key"],
             api_secret=data["api_secret"],
             config=SessionConfig(**data["config"]),
-            status=StreamStatus(data["status"])
+            status=StreamStatus(data["status"]),
         )
-        session.created_at = datetime.fromisoformat(data["created_at"])
-        session.updated_at = datetime.fromisoformat(data["updated_at"])
-        session.stats = data.get("stats", {})
-        return session
+        s.created_at = datetime.fromisoformat(data["created_at"])
+        s.updated_at = datetime.fromisoformat(data["updated_at"])
+        s.stats = data.get("stats", {})
+        return s
 
     def update_config(self, **kwargs):
-        """更新配置"""
-        config_dict = self.config.model_dump()
-        for key, value in kwargs.items():
-            if value is not None and key in config_dict:
-                config_dict[key] = value
-        self.config = SessionConfig(**config_dict)
+        d = self.config.model_dump()
+        for k, v in kwargs.items():
+            if v is not None and k in d:
+                d[k] = v
+        self.config = SessionConfig(**d)
         self.updated_at = datetime.now()
 
 
 class SessionManager:
-    """管理所有用戶會話"""
     _instance = None
+    _init_done = False
+
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+        return cls._instance
 
     def __init__(self):
-        self.sessions: Dict[str, Session] = {}  # session_id -> Session
-        self.path_to_session: Dict[str, str] = {}  # path -> session_id
-        self._load_sessions()
+        if SessionManager._init_done:
+            return
+        SessionManager._init_done = True
+        self.sessions: Dict[str, Session] = {}
+        self.path_to_session: Dict[str, str] = {}
+        self._lock = threading.Lock()
+        self._load()
 
     @classmethod
     def get_instance(cls) -> "SessionManager":
-        if cls._instance is None:
-            cls._instance = SessionManager()
-        return cls._instance
+        return cls()
 
-    def _load_sessions(self):
-        """從文件加載會話"""
-        if os.path.exists(SESSION_FILE):
-            try:
-                with open(SESSION_FILE, 'r') as f:
-                    data = json.load(f)
-                    for session_data in data.get("sessions", []):
-                        session = Session.from_dict(session_data)
-                        self.sessions[session.session_id] = session
-                        # 重建 path 映射
-                        path = f"{session.api_key}/{session.api_secret}"
-                        self.path_to_session[path] = session.session_id
-                logger.info(f"[SessionManager] Loaded {len(self.sessions)} sessions")
-            except Exception as e:
-                logger.error(f"[SessionManager] Failed to load sessions: {e}")
+    # --- Persistence ---
 
-    def _save_sessions(self):
-        """保存會話到文件"""
+    def _load(self):
+        if not os.path.exists(SESSION_FILE):
+            return
         try:
-            data = {
-                "sessions": [s.to_dict() for s in self.sessions.values()],
-                "updated_at": datetime.now().isoformat()
-            }
-            with open(SESSION_FILE, 'w') as f:
-                json.dump(data, f, indent=2)
+            with open(SESSION_FILE, "r") as f:
+                for sd in json.load(f).get("sessions", []):
+                    s = Session.from_dict(sd)
+                    self.sessions[s.session_id] = s
+                    self.path_to_session[f"{s.api_key}/{s.api_secret}"] = s.session_id
+            logger.info(f"[SessionManager] Loaded {len(self.sessions)} sessions")
         except Exception as e:
-            logger.error(f"[SessionManager] Failed to save sessions: {e}")
+            logger.error(f"[SessionManager] Load failed: {e}")
 
-    def create_session(
-        self,
-        api_key: str,
-        api_secret: str,
-        config: SessionConfig
-    ) -> Session:
-        """創建新會話"""
-        session_id = f"{api_key}_{api_secret}"
+    def _save(self):
+        try:
+            payload = {
+                "sessions": [s.to_dict() for s in self.sessions.values()],
+                "updated_at": datetime.now().isoformat(),
+            }
+            with self._lock:
+                with tempfile.NamedTemporaryFile("w", delete=False, dir=".", suffix=".tmp") as tmp:
+                    json.dump(payload, tmp, indent=2)
+                    tmp_path = tmp.name
+                os.replace(tmp_path, SESSION_FILE)
+        except Exception as e:
+            logger.error(f"[SessionManager] Save failed: {e}")
+
+    # --- CRUD ---
+
+    def create_session(self, api_key: str, api_secret: str, config: SessionConfig) -> Session:
+        sid = f"{api_key}_{api_secret}"
         path = f"{api_key}/{api_secret}"
-        
-        # 如果已存在，更新配置
-        if session_id in self.sessions:
-            session = self.sessions[session_id]
-            session.config = config
-            session.updated_at = datetime.now()
-            logger.info(f"[SessionManager] Updated existing session: {session_id}")
+        if sid in self.sessions:
+            s = self.sessions[sid]
+            s.config = config
+            s.updated_at = datetime.now()
         else:
-            session = Session(
-                session_id=session_id,
-                api_key=api_key,
-                api_secret=api_secret,
-                config=config
-            )
-            self.sessions[session_id] = session
-            self.path_to_session[path] = session_id
-            logger.info(f"[SessionManager] Created new session: {session_id}")
-        
-        self._save_sessions()
-        return session
+            s = Session(session_id=sid, api_key=api_key, api_secret=api_secret, config=config)
+            self.sessions[sid] = s
+            self.path_to_session[path] = sid
+        self._save()
+        return s
 
     def get_session(self, session_id: str) -> Optional[Session]:
-        """獲取會話"""
         return self.sessions.get(session_id)
 
     def get_session_by_path(self, path: str) -> Optional[Session]:
-        """通過 RTMP path 獲取會話"""
-        session_id = self.path_to_session.get(path)
-        if session_id:
-            return self.sessions.get(session_id)
-        return None
+        sid = self.path_to_session.get(path)
+        return self.sessions.get(sid) if sid else None
 
     def update_session(self, session_id: str, **kwargs) -> Optional[Session]:
-        """更新會話配置"""
-        session = self.sessions.get(session_id)
-        if session:
-            session.update_config(**kwargs)
-            self._save_sessions()
-            return session
-        return None
+        s = self.sessions.get(session_id)
+        if s:
+            s.update_config(**kwargs)
+            self._save()
+        return s
 
     def update_session_status(self, session_id: str, status: StreamStatus) -> Optional[Session]:
-        """更新會話狀態"""
-        session = self.sessions.get(session_id)
-        if session:
-            session.status = status
-            session.updated_at = datetime.now()
-            self._save_sessions()
-            return session
-        return None
+        s = self.sessions.get(session_id)
+        if s:
+            s.status = status
+            s.updated_at = datetime.now()
+            self._save()
+        return s
 
     def delete_session(self, session_id: str) -> bool:
-        """刪除會話"""
-        if session_id in self.sessions:
-            session = self.sessions[session_id]
-            path = f"{session.api_key}/{session.api_secret}"
-            del self.sessions[session_id]
-            if path in self.path_to_session:
-                del self.path_to_session[path]
-            self._save_sessions()
-            logger.info(f"[SessionManager] Deleted session: {session_id}")
-            return True
-        return False
+        s = self.sessions.pop(session_id, None)
+        if not s:
+            return False
+        self.path_to_session.pop(f"{s.api_key}/{s.api_secret}", None)
+        self._save()
+        return True
 
     def list_sessions(self, api_key: Optional[str] = None) -> list[Session]:
-        """列出會話"""
         if api_key:
             return [s for s in self.sessions.values() if s.api_key == api_key]
         return list(self.sessions.values())
 
     def get_session_for_stream(self, path: str) -> Optional[Session]:
-        """
-        當 MediaMTX 收到推流時，根據 path 找到對應的會話配置
-        path 格式: api_key/api_secret
-        """
-        session = self.get_session_by_path(path)
-        if session:
-            return session
-        
-        # 嘗試解析 path
-        parts = path.strip('/').split('/')
+        """Find session by RTMP path (api_key/api_secret)."""
+        s = self.get_session_by_path(path)
+        if s:
+            return s
+        parts = path.strip("/").split("/")
         if len(parts) >= 2:
-            api_key = parts[0]
-            api_secret = parts[1]
-            session_id = f"{api_key}_{api_secret}"
-            return self.sessions.get(session_id)
-        
+            return self.sessions.get(f"{parts[0]}_{parts[1]}")
         return None
 
 
-# 全局實例
 session_manager = SessionManager.get_instance()

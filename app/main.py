@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from app.services.monitor import monitor_streams
+from app.services.process_manager import process_manager
 from app.core import logger
 from app.config import settings
 from app.routes.webhooks import router as webhooks_router
@@ -20,6 +21,11 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("[Main] Server shutting down...")
     task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
+    process_manager.stop_all()
 
 app = FastAPI(title="AI RTMP Stream Manager", 
               description="Manage AI RTMP streams with ease",

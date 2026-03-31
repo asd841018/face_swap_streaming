@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any
 from datetime import datetime
 from enum import Enum
+
 
 class StreamStatus(str, Enum):
     PENDING = "pending"        # 用戶已配置，等待推流
@@ -9,10 +10,21 @@ class StreamStatus(str, Enum):
     STOPPED = "stopped"        # 已停止
     ERROR = "error"            # 錯誤狀態
 
+
+class FilterType(str, Enum):
+    COLD_BEAUTY = "cold_beauty"
+    WARM_BEAUTY = "warm_beauty"
+    VINTAGE = "vintage"
+
+
 class SessionConfig(BaseModel):
     """用戶推流前配置的設定"""
     output_url: str = Field(..., description="目標推流地址，例如 Twitch/YouTube RTMP URL")
     source_face_url: Optional[str] = Field(None, description="換臉來源圖片 URL")
+    is_kol_mode: bool = Field(default=False, description="是否啟用 KOL 模式")
+    kol_source_url: Optional[str] = Field(None, description="KOL 模式來源 URL")
+    filter_type: Optional[FilterType] = Field(None, description="濾鏡類型：cold_beauty/warm_beauty/vintage")
+    use_image_filter: bool = Field(default=False, description="是否使用濾鏡流程")
     swap_all: bool = Field(default=False, description="是否替換畫面中所有人臉")
     video_bitrate: Optional[str] = Field(default="3000k", description="輸出視頻比特率")
     video_resolution: Optional[str] = Field(default="1280x720", description="輸出解析度")
@@ -28,6 +40,10 @@ class SessionUpdate(BaseModel):
     """更新會話配置的請求"""
     output_url: Optional[str] = None
     source_face_url: Optional[str] = None
+    is_kol_mode: Optional[bool] = None
+    kol_source_url: Optional[str] = None
+    filter_type: Optional[FilterType] = None
+    use_image_filter: Optional[bool] = None
     swap_all: Optional[bool] = None
     video_bitrate: Optional[str] = None
     video_resolution: Optional[str] = None

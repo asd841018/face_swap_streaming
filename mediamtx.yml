@@ -1,6 +1,10 @@
 # 啟用 API (預設 Port 9997)
 api: yes
 
+# MediaMTX 預設其實就會開 1935，但明確寫出來比較好管理
+rtmp: yes
+rtmpAddress: :1935
+
 # 啟用 WebRTC 伺服器
 webrtc: yes
 # 這是 WebRTC 信令 (Signaling) 的 Port

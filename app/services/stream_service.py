@@ -3,76 +3,113 @@ from app.services.worker import run_stream_process
 from app.services.session_service import session_manager
 from app.schemas.session import StreamStatus
 from app.core import logger
+from app.config import settings
+from urllib.parse import parse_qs
+from typing import Any, Dict, Optional
+
 
 class StreamService:
     def __init__(self):
         self.mediamtx_host = "127.0.0.1"
         self.mediamtx_port = "1935"
 
-    def start_worker(self, path: str, query: str = None) -> bool:
-        """
-        Start a worker process for the given stream path.
-        
-        優先使用用戶預先配置的會話設定，
-        如果沒有預先配置，則使用 query 參數或默認值
-        """
-        # Avoid infinite loop: ignore streams already processed by AI
+    @staticmethod
+    def _to_bool(value: Optional[str]) -> bool:
+        if value is None:
+            return False
+        return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+    def _default_output(self, path: str) -> str:
+        api_key = path.split("/")[0]
+        return f"rtmp://{self.mediamtx_host}:{self.mediamtx_port}/{api_key}_ai"
+
+    def _parse_query(self, query: Optional[str]) -> Dict[str, Any]:
+        if not query:
+            return {}
+        qs = parse_qs(query)
+
+        def first(keys):
+            for k in keys:
+                vals = qs.get(k)
+                if vals:
+                    return vals[0]
+            return None
+
+        fr_raw = first(["frame_rate"])
+        try:
+            fr = int(fr_raw) if fr_raw else None
+        except ValueError:
+            fr = None
+
+        return {
+            "output_url": first(["target", "push_url"]),
+            "source_face_url": first(["source_face", "source_face_url"]),
+            "filter_type": first(["filter_type"]),
+            "use_image_filter": self._to_bool(first(["use_image_filter"])),
+            "video_bitrate": first(["video_bitrate"]),
+            "video_resolution": first(["video_resolution"]),
+            "frame_rate": fr,
+            "swap_all": self._to_bool(first(["swap_all"])),
+        }
+
+    def start_worker(
+        self,
+        path: str,
+        query: Optional[str] = None,
+        startup_overrides: Optional[Dict[str, Any]] = None,
+    ) -> bool:
         if path.endswith("_ai"):
-            logger.info(f"[Service] Ignoring AI stream: {path}")
             return False
 
-        # 1. 嘗試從會話管理器獲取預先配置的設定
+        ov = startup_overrides or {}
+        qo = self._parse_query(query)
         session = session_manager.get_session_for_stream(path)
-        
-        output_rtmp = None
-        source_face_url = None
-        video_config = {}
-        
+
+        # Resolve config — session > override > query > default
         if session:
-            # 使用預先配置的設定
-            output_rtmp = session.config.output_url
-            source_face_url = session.config.source_face_url
+            sc = session.config
+            output_rtmp = sc.output_url
+            source_face_url = sc.source_face_url or ov.get("source_face_url") or qo.get("source_face_url")
+            use_image_filter = sc.use_image_filter
+            filter_type = sc.filter_type.value if sc.filter_type else ov.get("filter_type") or qo.get("filter_type")
+            is_kol_mode = sc.is_kol_mode if hasattr(sc, "is_kol_mode") else False
+            kol_source_url = sc.kol_source_url if hasattr(sc, "kol_source_url") else None
             video_config = {
-                "bitrate": session.config.video_bitrate,
-                "resolution": session.config.video_resolution,
-                "frame_rate": session.config.frame_rate,
-                "swap_all": session.config.swap_all
+                "bitrate": sc.video_bitrate or settings.DEFAULT_VIDEO_BITRATE,
+                "resolution": sc.video_resolution or settings.DEFAULT_VIDEO_RESOLUTION,
+                "frame_rate": sc.frame_rate or settings.DEFAULT_FRAME_RATE,
+                "swap_all": sc.swap_all,
             }
-            logger.info(f"[Service] Using pre-configured session: {session.session_id}")
-            
-            # 更新會話狀態為 ACTIVE
-            session_manager.update_session_status(session.session_id, StreamStatus.ACTIVE)
+            logger.info(f"[Service] Using session: {session.session_id}")
         else:
-            # 2. 沒有預先配置，嘗試從 query 參數獲取
-            if query:
-                from urllib.parse import parse_qs
-                qs = parse_qs(query)
-                if 'target' in qs:
-                    output_rtmp = qs['target'][0]
-                elif 'push_url' in qs:
-                    output_rtmp = qs['push_url'][0]
-                if 'source_face' in qs:
-                    source_face_url = qs['source_face'][0]
-            
-            # 3. 如果還是沒有 output_rtmp，使用默認值（本地 AI 流）
-            if not output_rtmp:
-                API_KEY = path.split('/')[0]
-                output_rtmp = f"rtmp://{self.mediamtx_host}:{self.mediamtx_port}/{API_KEY}_ai"
-                logger.warning(f"[Service] No output URL configured, using default: {output_rtmp}")
+            output_rtmp = ov.get("output_url") or qo.get("output_url")
+            source_face_url = ov.get("source_face_url") or qo.get("source_face_url")
+            use_image_filter = ov.get("use_image_filter", qo.get("use_image_filter", False))
+            filter_type = ov.get("filter_type") or qo.get("filter_type")
+            is_kol_mode = ov.get("is_kol_mode", qo.get("is_kol_mode", False))
+            kol_source_url = ov.get("kol_source_url", qo.get("kol_source_url"))
+            video_config = {
+                "bitrate": qo.get("video_bitrate") or settings.DEFAULT_VIDEO_BITRATE,
+                "resolution": qo.get("video_resolution") or settings.DEFAULT_VIDEO_RESOLUTION,
+                "frame_rate": qo.get("frame_rate") or settings.DEFAULT_FRAME_RATE,
+                "swap_all": qo.get("swap_all", False),
+            }
+
+        if not output_rtmp:
+            output_rtmp = self._default_output(path)
 
         input_rtmp = f"rtmp://{self.mediamtx_host}:{self.mediamtx_port}/{path}"
-
-        logger.info(f"[Service] Requesting Worker Process: {input_rtmp} -> {output_rtmp}")
+        logger.info(f"[Service] Starting worker: {input_rtmp} -> {output_rtmp}")
 
         try:
-            # Use ProcessManager to start a new process
-            success = process_manager.start_process(
-                path, 
-                run_stream_process, 
-                args=(input_rtmp, output_rtmp, source_face_url, video_config)
+            ok = process_manager.start_process(
+                path,
+                run_stream_process,
+                args=(input_rtmp, output_rtmp, source_face_url, use_image_filter, filter_type, is_kol_mode, kol_source_url, video_config),
             )
-            return success
-            
+            if ok and session:
+                session_manager.update_session_status(session.session_id, StreamStatus.ACTIVE)
+            return ok
         except Exception as e:
             logger.error(f"[Service] Failed to start worker: {e}")
             if session:
@@ -80,44 +117,10 @@ class StreamService:
             return False
 
     def stop_worker(self, path: str) -> bool:
-        """
-        Stop the worker process for the given stream path.
-        """
-        # 更新會話狀態
         session = session_manager.get_session_for_stream(path)
         if session:
             session_manager.update_session_status(session.session_id, StreamStatus.STOPPED)
-        
         return process_manager.stop_process(path)
 
-    def start_worker_legacy(self, path: str, 
-                            source_face_url: str = None, 
-                            ref_image_url: str = None,
-                            use_image_filter: bool = False) -> bool:
-        """
-        舊版本的 start_worker，用於沒有預先配置會話的情況。
-        使用默認的 output_rtmp（本地 AI 流）
-        """
-        if path.endswith("_ai"):
-            logger.info(f"[Service] Ignoring AI stream: {path}")
-            return False
-        
-        API_KEY = path.split('/')[0]
-        output_rtmp = f"rtmp://{self.mediamtx_host}:{self.mediamtx_port}/{API_KEY}_ai"
-        input_rtmp = f"rtmp://{self.mediamtx_host}:{self.mediamtx_port}/{path}"
 
-        logger.info(f"[Service] (Legacy) Requesting Worker Process: {input_rtmp} -> {output_rtmp}")
-
-        try:
-            success = process_manager.start_process(
-                path, 
-                run_stream_process, 
-                args=(input_rtmp, output_rtmp, source_face_url,  ref_image_url, use_image_filter, {})
-            )
-            return success
-        except Exception as e:
-            logger.error(f"[Service] Failed to start worker: {e}")
-            return False
-
-# Global instance
 stream_service = StreamService()

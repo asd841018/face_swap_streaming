@@ -7,7 +7,8 @@ from app.schemas.session import (
     SessionListResponse,
     StreamStats,
     ApiResponse,
-    StreamStatus
+    StreamStatus,
+    FilterType,
 )
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "SessionListResponse",
     "StreamStats",
     "ApiResponse",
-    "StreamStatus"
+    "StreamStatus",
+    "FilterType",
 ]

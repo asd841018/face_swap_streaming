@@ -82,20 +82,8 @@ def vignette(bgr, strength=0.35):
     out = bgr.astype(np.float32) * mask
     return np.clip(out, 0, 255).astype(np.uint8)
 
-def vintage_filter(bgr,
-                   contrast=0.12, lift=14, gamma=1.05,
-                   balance=0.55,
-                   grain=0.10, colored_grain=False,
-                   vig=0.35):
+def vintage_filter(bgr, contrast=0.12, lift=14, gamma=1.05, vig=0.35):
     curve = build_fade_curve(contrast=contrast, lift=lift, gamma=gamma)
     out = apply_curve_bgr(bgr, curve)
-
-    # 分離色調：暗部微青，高光微暖
-    # out = split_tone(out,
-    #                  shadow=(10, 6, -6),
-    #                  highlight=(-6, -2, 12),
-    #                  balance=balance)
-
-    # out = film_grain(out, amount=grain, colored=colored_grain)
     out = vignette(out, strength=vig)
     return out
