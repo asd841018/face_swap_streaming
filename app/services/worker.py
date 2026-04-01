@@ -200,7 +200,102 @@ def _start_ffmpeg(
     return ffmpeg, stderr_stop, thread
 
 
-def _cleanup(reader, ffmpeg, stderr_stop, stderr_thread, reason):
+# ---------------------------------------------------------------------------
+# GStreamer helpers
+# ---------------------------------------------------------------------------
+
+def _parse_bitrate_kbps(bitrate: str) -> int:
+    """Convert bitrate string like '3000k' or '5M' to integer kbit/s."""
+    b = (bitrate or "").strip().lower()
+    if not b:
+        return 3000
+    suffix = b[-1]
+    if suffix == "k":
+        val_str = b[:-1]
+    elif suffix == "m":
+        try:
+            return int(b[:-1]) * 1000
+        except ValueError:
+            return 3000
+    else:
+        val_str = b
+    try:
+        return int(val_str)
+    except ValueError:
+        return 3000
+
+
+def _build_gstreamer_cmd(w: int, h: int, fps: int, bitrate: str, output: str) -> list[str]:
+    br = _parse_bitrate_kbps(bitrate)
+    blocksize = w * h * 3  # BGR: 3 bytes per pixel
+    return [
+        "gst-launch-1.0", "-e",
+        "fdsrc", f"blocksize={blocksize}", "!",
+        "rawvideoparse", f"width={w}", f"height={h}",
+        f"framerate={fps}/1", "!",
+        "videoconvert", "!", "video/x-raw,format=I420", "!",
+        "nvh264enc", "preset=low-latency-hq", "rc-mode=cbr",
+        f"bitrate={br}", f"gop-size={fps * 2}", "b-frames=0", "!",
+        "h264parse", "!",
+        "flvmux", "streamable=true", "!",
+        "rtmpsink", f"location={output}",
+    ]
+
+
+def _drain_gstreamer_stderr(proc: sp.Popen, stop: threading.Event):
+    if not proc or not proc.stderr:
+        return
+    while not stop.is_set():
+        try:
+            raw = proc.stderr.readline()
+            if not raw:
+                break
+            line = raw.decode("utf-8", errors="ignore").strip()
+            if not line:
+                continue
+            low = line.lower()
+            if any(w in low for w in ("error", "failed", "invalid", "fatal")):
+                logger.error(f"[Worker][GStreamer] {line}")
+            elif "warning" in low:
+                logger.warning(f"[Worker][GStreamer] {line}")
+        except Exception:
+            break
+
+
+def _start_gstreamer(
+    vcfg: VideoConfig, output_rtmp: str,
+) -> tuple[sp.Popen, threading.Event, threading.Thread]:
+    """Launch GStreamer pipeline and a daemon thread draining its stderr."""
+    stderr_stop = threading.Event()
+    proc = sp.Popen(
+        _build_gstreamer_cmd(vcfg.width, vcfg.height, vcfg.fps, vcfg.bitrate, output_rtmp),
+        stdin=sp.PIPE, stderr=sp.PIPE,
+    )
+    thread = threading.Thread(
+        target=_drain_gstreamer_stderr, args=(proc, stderr_stop), daemon=True,
+    )
+    thread.start()
+    return proc, stderr_stop, thread
+
+
+# ---------------------------------------------------------------------------
+# Encoder dispatcher
+# ---------------------------------------------------------------------------
+
+def _start_encoder(
+    vcfg: VideoConfig, output_rtmp: str,
+) -> tuple[sp.Popen, threading.Event, threading.Thread]:
+    """Start the configured video encoder (FFmpeg or GStreamer)."""
+    if settings.STREAM_ENCODER.lower() == "gstreamer":
+        return _start_gstreamer(vcfg, output_rtmp)
+    return _start_ffmpeg(vcfg, output_rtmp)
+
+
+# ---------------------------------------------------------------------------
+# Cleanup
+# ---------------------------------------------------------------------------
+
+def _cleanup(reader, encoder, stderr_stop, stderr_thread, reason):
     pid = os.getpid()
     logger.info(f"[Worker] PID {pid} cleaning up (reason: {reason})")
     stderr_stop.set()
@@ -209,25 +304,25 @@ def _cleanup(reader, ffmpeg, stderr_stop, stderr_thread, reason):
         reader.stop()
         reader.join(timeout=2)
 
-    if ffmpeg and ffmpeg.stdin and not ffmpeg.stdin.closed:
+    if encoder and encoder.stdin and not encoder.stdin.closed:
         try:
-            ffmpeg.stdin.close()
+            encoder.stdin.close()
         except Exception:
             pass
 
-    if ffmpeg:
+    if encoder:
         try:
-            ffmpeg.wait(timeout=5)
+            encoder.wait(timeout=5)
         except sp.TimeoutExpired:
-            ffmpeg.terminate()
+            encoder.terminate()
             try:
-                ffmpeg.wait(timeout=2)
+                encoder.wait(timeout=2)
             except sp.TimeoutExpired:
-                ffmpeg.kill()
+                encoder.kill()
 
-    if ffmpeg and ffmpeg.stderr and not ffmpeg.stderr.closed:
+    if encoder and encoder.stderr and not encoder.stderr.closed:
         try:
-            ffmpeg.stderr.close()
+            encoder.stderr.close()
         except Exception:
             pass
 
@@ -286,7 +381,7 @@ def _ensure_resolution(frame: np.ndarray, w: int, h: int) -> np.ndarray:
     return frame
 
 
-def _run_main_loop(stop_event, queue, reader, ffmpeg, swapper, state, vcfg):
+def _run_main_loop(stop_event, queue, reader, encoder, swapper, state, vcfg):
     """Run the frame-processing loop.  Returns the exit-reason string."""
     frame_count = 0
     t0 = time.time()
@@ -296,8 +391,8 @@ def _run_main_loop(stop_event, queue, reader, ffmpeg, swapper, state, vcfg):
 
     try:
         while not stop_event.is_set() and reader.running:
-            if ffmpeg.poll() is not None:
-                exit_reason = f"ffmpeg_exited_{ffmpeg.returncode}"
+            if encoder.poll() is not None:
+                exit_reason = f"encoder_exited_{encoder.returncode}"
                 break
 
             _process_queue_messages(queue, swapper, state)
@@ -324,12 +419,12 @@ def _run_main_loop(stop_event, queue, reader, ffmpeg, swapper, state, vcfg):
                     out = swapper.swap_into(frame, state["src_faces"], swap_all=vcfg.swap_all)
 
                 out = _ensure_resolution(out, vcfg.width, vcfg.height)
-                ffmpeg.stdin.write(out.tobytes())
+                encoder.stdin.write(out.tobytes())
                 frame_count += 1
                 if frame_count % 200 == 0:
                     logger.info(f"[Worker] PID {os.getpid()} FPS: {frame_count / (time.time() - t0):.1f}")
             except BrokenPipeError:
-                exit_reason = "ffmpeg_broken_pipe"
+                exit_reason = "encoder_broken_pipe"
                 break
             except Exception as e:
                 logger.error(f"[Worker] Processing error: {e}")
@@ -365,8 +460,9 @@ def run_stream_process(
     kol_source_url: str | None = None,
     video_config: dict | None = None,
 ):
-    """Worker process entry point: read RTMP -> AI -> push RTMP via FFmpeg."""
-    logger.info(f"[Worker] Starting: {input_rtmp} -> {output_rtmp}")
+    """Worker process entry point: read RTMP -> AI -> push RTMP via encoder."""
+    encoder_name = settings.STREAM_ENCODER
+    logger.info(f"[Worker] Starting ({encoder_name}): {input_rtmp} -> {output_rtmp}")
     vcfg = _parse_video_config(video_config)
 
     try:
@@ -376,15 +472,15 @@ def run_stream_process(
         return
 
     try:
-        ffmpeg, stderr_stop, stderr_thread = _start_ffmpeg(vcfg, output_rtmp)
+        encoder, stderr_stop, stderr_thread = _start_encoder(vcfg, output_rtmp)
     except FileNotFoundError:
-        logger.error("[Worker] FFmpeg not found.")
+        logger.error(f"[Worker] {encoder_name} not found.")
         return
 
     reader = _connect_input_stream(input_rtmp)
     if reader is None:
         logger.error("[Worker] Could not open input stream.")
-        _cleanup(None, ffmpeg, stderr_stop, stderr_thread, "input_connection_failed")
+        _cleanup(None, encoder, stderr_stop, stderr_thread, "input_connection_failed")
         return
     reader.start()
 
@@ -398,6 +494,6 @@ def run_stream_process(
     }
     exit_reason = "unknown"
     try:
-        exit_reason = _run_main_loop(stop_event, queue, reader, ffmpeg, swapper, state, vcfg)
+        exit_reason = _run_main_loop(stop_event, queue, reader, encoder, swapper, state, vcfg)
     finally:
-        _cleanup(reader, ffmpeg, stderr_stop, stderr_thread, exit_reason)
+        _cleanup(reader, encoder, stderr_stop, stderr_thread, exit_reason)
