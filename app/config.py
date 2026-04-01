@@ -13,8 +13,8 @@ class Settings(BaseSettings):
         default="buffalo_l", 
         description="Name of the face analysis model"
     )
-    SWAPPING_MODEL_PATH: Optional[str] = Field(
-        default="/home/asd841018/face_swap_streaming/.assets/models/inswapper_128_fp16.onnx", 
+    SWAPPING_MODEL_PATH: str = Field(
+        default="", 
         description="Path to the face swapping model"
     )
 
@@ -24,7 +24,7 @@ class Settings(BaseSettings):
         description="MediaMTX API endpoint for active paths",
     )
     FACESWAP_API_BASE_URL: str = Field(
-        default="https://dev-api.aimate.am",
+        default="",
         description="External faceswap API base URL",
     )
     MONITOR_POLL_INTERVAL_SECONDS: float = Field(
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
         description="Timeout for external faceswap API calls",
     )
     MAX_WORKERS: int = Field(
-        default=5,
+        default=2,
         description="Maximum number of concurrent worker processes",
     )
     MAX_CONCURRENT_VIDEO_SWAP_JOBS: int = Field(
@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     )
     DEFAULT_VIDEO_BITRATE: str = Field(default="3000k", description="Default output bitrate")
     DEFAULT_VIDEO_RESOLUTION: str = Field(default="1280x720", description="Default output resolution")
-    DEFAULT_FRAME_RATE: int = Field(default=25, description="Default output frame rate")
+    DEFAULT_FRAME_RATE: int = Field(default=12, description="Default output frame rate")
     
     # Source Face Configuration
     SOURCE_FACE_DIR: Optional[str] = Field(
@@ -85,6 +85,18 @@ class Settings(BaseSettings):
         description="Legacy ref image URL mapped to vintage filter",
     )
 
+    # Streaming Encoder Configuration (FFMPEG or GStreamer)
+    STREAM_ENCODER: str = Field(
+        default="ffmpeg",
+        description="Streaming encoder to use (e.g., ffmpeg, gstreamer)"
+    )
+    
+    # Output rtmp server configuration
+    OUTPUT_SERVER_IP: str = Field(
+        default="",
+        description="IP address of the RTMP server to push the processed stream to"
+    )
+    
     class Config:
         env_file = ".env"
         case_sensitive = True

@@ -12,6 +12,7 @@ class StreamService:
     def __init__(self):
         self.mediamtx_host = "127.0.0.1"
         self.mediamtx_port = "1935"
+        self.output_server_ip = settings.OUTPUT_SERVER_IP
 
     @staticmethod
     def _to_bool(value: Optional[str]) -> bool:
@@ -21,7 +22,7 @@ class StreamService:
 
     def _default_output(self, path: str) -> str:
         api_key = path.split("/")[0]
-        return f"rtmp://{self.mediamtx_host}:{self.mediamtx_port}/{api_key}_ai"
+        return f"rtmp://{self.output_server_ip}:{self.mediamtx_port}/{api_key}_ai"
 
     def _parse_query(self, query: Optional[str]) -> Dict[str, Any]:
         if not query:
