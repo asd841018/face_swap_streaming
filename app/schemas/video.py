@@ -19,6 +19,7 @@ class VideoSwapRequest(BaseModel):
     owner_key: str
     image_url: str  # Source face image URL
     video_url: str  # Video URL to process
+    callback_url: Optional[str] = None  # If set, POST status updates here
 
 
 class VideoSwapResponse(BaseModel):

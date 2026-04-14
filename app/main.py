@@ -7,10 +7,11 @@ from app.services.monitor import monitor_streams
 from app.services.process_manager import process_manager
 from app.core import logger
 from app.config import settings
+from app.core.session import engine as db_engine
 from app.routes.webhooks import router as webhooks_router
 from app.routes.sessions import router as sessions_router
 from app.routes.system import router as system_router
-from app.routes.video import router as video_router
+from app.video_swap import router as video_router
 
 
 @asynccontextmanager
@@ -26,6 +27,7 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
     process_manager.stop_all()
+    await db_engine.dispose()
 
 app = FastAPI(title="AI RTMP Stream Manager", 
               description="Manage AI RTMP streams with ease",

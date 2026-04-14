@@ -96,7 +96,29 @@ class Settings(BaseSettings):
         default="",
         description="IP address of the RTMP server to push the processed stream to"
     )
-    
+
+    # Webhook Configuration (outbound progress callbacks)
+    WEBHOOK_TIMEOUT_SECONDS: float = Field(default=10.0)
+    WEBHOOK_MAX_RETRIES: int = Field(default=3)
+    WEBHOOK_SIGNING_SECRET: str = Field(
+        default="",
+        description="If set, each webhook body is HMAC-SHA256 signed and the hex digest sent in X-Webhook-Signature",
+    )
+
+    # Postgres Configuration
+    POSTGRES_USER: str = Field(default="ai_livestream_admin")
+    POSTGRES_PASSWORD: str = Field(default="1234")
+    POSTGRES_HOST: str = Field(default="localhost")
+    POSTGRES_PORT: int = Field(default=5432)
+    POSTGRES_DB: str = Field(default="ai_livestream")
+
+    @property
+    def database_url(self) -> str:
+        return (
+            f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}"
+            f"@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        )
+
     class Config:
         env_file = ".env"
         case_sensitive = True
