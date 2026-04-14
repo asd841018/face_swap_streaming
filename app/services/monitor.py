@@ -57,7 +57,9 @@ async def _fetch_external_config(path: str, http: aiohttp.ClientSession) -> Dict
             api_key=parts[0],
             api_secret=parts[1],
         )
-        resp = await client.get_face_image_async(session=http, timeout_seconds=settings.FACESWAP_API_TIMEOUT_SECONDS)
+        resp = await client.get_face_image_async(session=http, 
+                                                 order_number=parts[2] if len(parts) > 2 else "",
+                                                 timeout_seconds=settings.FACESWAP_API_TIMEOUT_SECONDS)
         return _parse_external_payload(resp)
     except Exception as e:
         logger.error(f"[Monitor] Fetch config failed for {path}: {e}")
@@ -103,7 +105,9 @@ async def monitor_streams():
                     data = await resp.json()
                     items = data.get("items") or []
                     ready_paths = {it["name"] for it in items if it.get("ready") and it.get("name")}
-                    source_paths = [p for p in ready_paths if not p.endswith("_ai")]
+                    # Filter out output streams: first segment ends with "_ai"
+                    # e.g. "apikey_ai" or "apikey_ai/001"
+                    source_paths = [p for p in ready_paths if not p.split("/")[0].endswith("_ai")]
 
                     # Build config for each source path
                     configs: Dict[str, Dict[str, Any]] = {}

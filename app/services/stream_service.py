@@ -99,6 +99,13 @@ class StreamService:
         if not output_rtmp:
             output_rtmp = self._default_output(path)
 
+        # Append sub-index to output URL for sub-user stream alignment
+        # e.g. path="apikey/secret/001" → output becomes ".../apikey_ai/001"
+        path_parts = path.strip("/").split("/")
+        if len(path_parts) >= 3:
+            sub_index = path_parts[2]
+            output_rtmp = f"{output_rtmp.rstrip('/')}/{sub_index}"
+
         input_rtmp = f"rtmp://{self.mediamtx_host}:{self.mediamtx_port}/{path}"
         logger.info(f"[Service] Starting worker: {input_rtmp} -> {output_rtmp}")
 

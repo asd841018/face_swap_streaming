@@ -162,11 +162,18 @@ class SessionManager:
         return list(self.sessions.values())
 
     def get_session_for_stream(self, path: str) -> Optional[Session]:
-        """Find session by RTMP path (api_key/api_secret)."""
+        """Find session by RTMP path (api_key/api_secret or api_key/api_secret/sub_index)."""
         s = self.get_session_by_path(path)
         if s:
             return s
         parts = path.strip("/").split("/")
+        # For paths with sub-index (e.g. api_key/api_secret/001),
+        # look up by base path api_key/api_secret
+        if len(parts) >= 3:
+            base_path = f"{parts[0]}/{parts[1]}"
+            s = self.get_session_by_path(base_path)
+            if s:
+                return s
         if len(parts) >= 2:
             return self.sessions.get(f"{parts[0]}_{parts[1]}")
         return None

@@ -28,10 +28,11 @@ class FaceswapApiClient:
     async def get_face_image_async(
         self,
         session: aiohttp.ClientSession,
+        order_number: str = "",
         timeout_seconds: float = 8.0,
     ) -> dict:
         """Fetch face-image config from the external API (async)."""
-        path = "/api/v1/faceswap/face-image"
+        path = f"/api/v1/faceswap/sessions/{order_number}/face-image"
         url = f"{self.base_url}{path}"
         async with session.get(url, headers=self._headers("GET", path), timeout=timeout_seconds) as resp:
             if resp.status >= 400:
