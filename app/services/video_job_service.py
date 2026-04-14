@@ -4,7 +4,7 @@ Persists only the skeleton fields (status, output_url, error, total_frames,
 timestamps). High-frequency progress updates are NOT written here — they live
 in ProgressBroadcaster and are pushed to WebSocket subscribers.
 """
-from typing import Optional
+from typing import List, Optional
 
 from sqlalchemy import select
 
@@ -20,6 +20,8 @@ class VideoJobManager:
         self,
         job_id: str,
         owner_key: str,
+        image_url: Optional[str] = None,
+        video_url: Optional[str] = None,
         output_url: Optional[str] = None,
         callback_url: Optional[str] = None,
     ) -> VideoJob:
@@ -27,6 +29,8 @@ class VideoJobManager:
             job = VideoJob(
                 job_id=job_id,
                 owner_key=owner_key,
+                image_url=image_url,
+                video_url=video_url,
                 output_url=output_url,
                 callback_url=callback_url,
                 status=VideoJobStatus.QUEUED,
@@ -35,6 +39,23 @@ class VideoJobManager:
             await session.commit()
             await session.refresh(job)
             return job
+
+    async def list_non_terminal_jobs(self) -> List[VideoJob]:
+        """Return jobs still in a pre-terminal state — used by startup recovery."""
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(VideoJob).where(
+                    VideoJob.status.in_(
+                        [
+                            VideoJobStatus.QUEUED,
+                            VideoJobStatus.DOWNLOADING,
+                            VideoJobStatus.PROCESSING,
+                            VideoJobStatus.UPLOADING,
+                        ]
+                    )
+                )
+            )
+            return list(result.scalars().all())
 
     async def get_job(self, job_id: str) -> Optional[VideoJob]:
         async with AsyncSessionLocal() as session:

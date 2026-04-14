@@ -12,6 +12,7 @@ from app.routes.webhooks import router as webhooks_router
 from app.routes.sessions import router as sessions_router
 from app.routes.system import router as system_router
 from app.video_swap import router as video_router
+from app.video_swap.service import video_swap_service
 
 
 @asynccontextmanager
@@ -19,6 +20,10 @@ async def lifespan(app: FastAPI):
     logger.info("[Main] Server starting...")
     # Start the background monitor task
     task = asyncio.create_task(monitor_streams())
+    try:
+        await video_swap_service.recover_pending_jobs()
+    except Exception as e:
+        logger.error(f"[Main] Video job recovery failed: {e}")
     yield
     logger.info("[Main] Server shutting down...")
     task.cancel()

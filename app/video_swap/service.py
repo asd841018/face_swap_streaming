@@ -65,6 +65,8 @@ class VideoSwapService:
         await video_job_manager.create_job(
             job_id=job_id,
             owner_key=request.owner_key,
+            image_url=request.image_url,
+            video_url=request.video_url,
             output_url=output_url,
             callback_url=request.callback_url,
         )
@@ -100,6 +102,58 @@ class VideoSwapService:
             status_url=status_url,
             owner_key=request.owner_key,
         )
+
+    async def recover_pending_jobs(self) -> int:
+        """On startup, re-enqueue jobs left in a non-terminal state.
+
+        Jobs created before the image_url/video_url columns existed cannot be
+        replayed — they are marked FAILED so clients stop polling.
+        """
+        jobs = await video_job_manager.list_non_terminal_jobs()
+        recovered = 0
+        for job in jobs:
+            if not job.image_url or not job.video_url:
+                await video_job_manager.mark_failed(
+                    job.job_id,
+                    "Server restarted before job completed and input URLs were not persisted.",
+                )
+                logger.warning(
+                    f"[VideoSwap:{job.job_id}] Cannot recover (missing input URLs) — marked FAILED"
+                )
+                continue
+
+            temp_dir = tempfile.mkdtemp(prefix=f"faceswap_{job.job_id}_")
+            output_filename = f"{job.owner_key}_{job.job_id}_swapped.mp4"
+            output_path = os.path.join(self.output_dir, output_filename)
+
+            await video_job_manager.update_job(job.job_id, status=VideoJobStatus.QUEUED)
+            await self._publish(
+                job.job_id,
+                job.callback_url,
+                status=VideoJobStatus.QUEUED,
+                progress_percentage=0,
+                current_step="queued",
+                message="Job re-queued after server restart.",
+                owner_key=job.owner_key,
+            )
+
+            asyncio.create_task(
+                self._process_in_background(
+                    job.job_id,
+                    job.owner_key,
+                    job.image_url,
+                    job.video_url,
+                    output_path,
+                    temp_dir,
+                    job.callback_url,
+                )
+            )
+            recovered += 1
+            logger.info(f"[VideoSwap:{job.job_id}] Re-enqueued after restart")
+
+        if recovered:
+            logger.info(f"[VideoSwap] Recovered {recovered} pending job(s) after restart")
+        return recovered
 
     async def get_job_status(self, job_id: str) -> Optional[VideoSwapStatusResponse]:
         """Merge DB record (authoritative skeleton) with broadcaster snapshot (live progress)."""

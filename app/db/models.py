@@ -23,6 +23,8 @@ class VideoJob(Base):
         default=VideoJobStatus.QUEUED,
         index=True,
     )
+    image_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    video_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     output_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     callback_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
