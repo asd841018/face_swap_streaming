@@ -33,6 +33,15 @@ async def swap_video_face(request: VideoSwapRequest, background_tasks: Backgroun
         raise HTTPException(status_code=500, detail=f"Failed to queue job: {str(e)}")
 
 
+@router.get("/busy")
+async def is_busy():
+    """Return whether the server is still processing any video swap job.
+
+    Used by the SaaS platform to decide whether this VM can be safely shut down.
+    """
+    return {"busy": await video_job_manager.has_active_jobs()}
+
+
 @router.get("/swap/{job_id}/status", response_model=VideoSwapStatusResponse)
 async def get_video_swap_status(job_id: str):
     """Poll the progress of a background video face swap job."""

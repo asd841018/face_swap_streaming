@@ -6,7 +6,7 @@ in ProgressBroadcaster and are pushed to WebSocket subscribers.
 """
 from typing import List, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, exists
 
 from app.db.models import VideoJob
 from app.core.session import AsyncSessionLocal
@@ -56,6 +56,25 @@ class VideoJobManager:
                 )
             )
             return list(result.scalars().all())
+
+    async def has_active_jobs(self) -> bool:
+        """Return True if any job is still in a pre-terminal state."""
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(
+                select(
+                    exists().where(
+                        VideoJob.status.in_(
+                            [
+                                VideoJobStatus.QUEUED,
+                                VideoJobStatus.DOWNLOADING,
+                                VideoJobStatus.PROCESSING,
+                                VideoJobStatus.UPLOADING,
+                            ]
+                        )
+                    )
+                )
+            )
+            return bool(result.scalar())
 
     async def get_job(self, job_id: str) -> Optional[VideoJob]:
         async with AsyncSessionLocal() as session:
