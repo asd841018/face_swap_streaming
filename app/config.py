@@ -23,9 +23,13 @@ class Settings(BaseSettings):
         default="http://localhost:9997/v3/paths/list",
         description="MediaMTX API endpoint for active paths",
     )
-    FACESWAP_API_BASE_URL: str = Field(
+    FACESWAP_DEV_BASE_URL: str = Field(
         default="",
-        description="External faceswap API base URL",
+        description="External faceswap API base URL (dev environment)",
+    )
+    FACESWAP_PRD_BASE_URL: str = Field(
+        default="",
+        description="External faceswap API base URL (production environment)",
     )
     MONITOR_POLL_INTERVAL_SECONDS: float = Field(
         default=2.0,

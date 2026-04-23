@@ -47,23 +47,48 @@ _DEFAULT_CONFIG: Dict[str, Any] = {
 }
 
 
+async def _fetch_from_base(
+    base_url: str,
+    api_key: str,
+    api_secret: str,
+    order_number: str,
+    http: aiohttp.ClientSession,
+) -> Dict[str, Any]:
+    client = FaceswapApiClient(base_url=base_url, api_key=api_key, api_secret=api_secret)
+    resp = await client.get_face_image_async(
+        session=http,
+        order_number=order_number,
+        timeout_seconds=settings.FACESWAP_API_TIMEOUT_SECONDS,
+    )
+    return _parse_external_payload(resp)
+
+
 async def _fetch_external_config(path: str, http: aiohttp.ClientSession) -> Dict[str, Any]:
     parts = path.split("/")
     if len(parts) < 2:
         return dict(_DEFAULT_CONFIG)
-    try:
-        client = FaceswapApiClient(
-            base_url=settings.FACESWAP_API_BASE_URL,
-            api_key=parts[0],
-            api_secret=parts[1],
-        )
-        resp = await client.get_face_image_async(session=http, 
-                                                 order_number=parts[2] if len(parts) > 2 else "",
-                                                 timeout_seconds=settings.FACESWAP_API_TIMEOUT_SECONDS)
-        return _parse_external_payload(resp)
-    except Exception as e:
-        logger.error(f"[Monitor] Fetch config failed for {path}: {e}")
+    api_key, api_secret = parts[0], parts[1]
+    order_number = parts[2] if len(parts) > 2 else ""
+
+    base_urls = [
+        ("dev", settings.FACESWAP_DEV_BASE_URL),
+        ("prd", settings.FACESWAP_PRD_BASE_URL),
+    ]
+    candidates = [(label, url) for label, url in base_urls if url]
+    if not candidates:
         return dict(_DEFAULT_CONFIG)
+
+    results = await asyncio.gather(
+        *(_fetch_from_base(url, api_key, api_secret, order_number, http) for _, url in candidates),
+        return_exceptions=True,
+    )
+    for (label, url), result in zip(candidates, results):
+        if isinstance(result, dict):
+            logger.info(f"[Monitor] Fetched config for {path} from {label} ({url})")
+            return result
+    for (label, _), result in zip(candidates, results):
+        logger.error(f"[Monitor] Fetch config failed for {path} from {label}: {result}")
+    return dict(_DEFAULT_CONFIG)
 
 
 def _send_updates(path: str, old: Dict, new: Dict):
